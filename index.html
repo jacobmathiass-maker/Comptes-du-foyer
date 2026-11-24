@@ -136,7 +136,47 @@ svg text{fill:var(--muted);font-size:11px}
 .choice{display:block;width:100%;text-align:left;padding:14px 16px;margin-bottom:10px;border-radius:12px}
 .choice b{display:block;font-size:15px} .choice span{font-size:13px;color:var(--muted);font-weight:400}
 .btn.pri.choice span{color:inherit;opacity:.85}
-@media (max-width:640px){.who{font-size:12px}}
+/* ---- Version simplifiée ---- */
+.top-in{padding:10px 16px}
+main{padding-bottom:150px;max-width:720px}
+main.large{max-width:1180px}
+nav.bottom{position:fixed;left:0;right:0;bottom:0;z-index:25;background:var(--surface);border-top:1px solid var(--line);display:flex;justify-content:center;padding-bottom:env(safe-area-inset-bottom)}
+nav.bottom button{flex:1;max-width:150px;border:0;background:none;padding:8px 4px 10px;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:11.5px;font-weight:600;color:var(--muted);cursor:pointer}
+nav.bottom button .i{font-size:21px;line-height:1;filter:grayscale(1);opacity:.65}
+nav.bottom button.on{color:var(--accent)} nav.bottom button.on .i{filter:none;opacity:1}
+.fab{bottom:calc(78px + env(safe-area-inset-bottom))}
+.hero-big{text-align:center;padding:22px 18px 18px;border:0;color:var(--accent-text);background:var(--accent)}
+.hero-big.warn{background:var(--warn)} .hero-big.bad{background:var(--bad)}
+.hero-big .lbl{font-size:15px;font-weight:600;opacity:.9}
+.hero-big .val{font-size:46px;font-weight:800;letter-spacing:-.02em;line-height:1.1;margin:6px 0 4px}
+.hero-big .sub{font-size:14px;opacity:.9}
+.gauge{height:12px;border-radius:6px;background:rgba(255,255,255,.28);overflow:hidden;margin:16px 0 6px}
+.gauge i{display:block;height:100%;background:currentColor;border-radius:6px}
+.gauge-txt{display:flex;justify-content:space-between;font-size:12px;opacity:.9}
+.gbar{height:10px;border-radius:5px;background:var(--surface2);overflow:hidden;margin:8px 0 4px}
+.gbar i{display:block;height:100%;border-radius:5px;background:var(--good)}
+.gbar i.warn{background:var(--warn)} .gbar i.bad{background:var(--bad)}
+.lines .l{display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)}
+.lines .l:last-child{border-bottom:0} .lines .l.t{font-weight:800}
+.stack>*+*{margin-top:14px}
+.quick-amt{display:flex;gap:8px;align-items:stretch;margin-bottom:10px}
+.quick-amt input{flex:1;min-width:0;font-size:34px;font-weight:800;text-align:center;padding:8px;border:2px solid var(--accent);border-radius:14px;background:var(--surface)}
+.quick-amt input:focus{outline:none}
+.quick-amt button{font-size:17px;font-weight:700;width:66px;border-radius:14px;border:1px solid var(--line);background:var(--surface2);cursor:pointer}
+.field-simple{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+.cats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:12px 0 6px}
+.cats button{border:1px solid var(--line);background:var(--surface);border-radius:14px;padding:10px 2px 8px;display:flex;flex-direction:column;align-items:center;gap:4px;font-size:11.5px;font-weight:600;cursor:pointer;color:var(--text);min-width:0;overflow:hidden;text-overflow:ellipsis}
+.cats button span{font-size:26px;line-height:1}
+.cats button:hover,.cats button:active{border-color:var(--accent);background:var(--accent-soft)}
+.shake{animation:shake .35s}
+@keyframes shake{25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}
+.mline{display:flex;align-items:center;gap:10px;padding:11px 0;border-bottom:1px solid var(--line);cursor:pointer}
+.mline:last-child{border-bottom:0}
+.mline .mid{flex:1;min-width:0} .mline .t{font-weight:600} .mline .s{font-size:12px;color:var(--muted)}
+.mline.off{opacity:.45}
+details.more summary{cursor:pointer;color:var(--muted);font-size:13px;margin:2px 0 8px}
+.back{margin:-4px 0 10px -8px}
+.toast{bottom:calc(150px + env(safe-area-inset-bottom));max-width:86vw;text-align:center}
 </style>
 </head>
 <body>
@@ -144,12 +184,11 @@ svg text{fill:var(--muted);font-size:11px}
   <div class="top-in">
     <div class="brand"><div class="logo">€</div>Comptes du foyer</div>
     <button class="btn sm" id="btn-sync" data-act="sync">⇄ Synchroniser <span class="badge" id="badge" hidden></span></button>
-    <div class="who">Je suis <select id="moi"></select></div>
-    <nav class="tabs" id="tabs"></nav>
   </div>
 </header>
 <main id="main"><div class="empty">Chargement…</div></main>
-<button class="fab" id="fab" title="Ajouter une opération" aria-label="Ajouter une opération">+</button>
+<button class="fab" id="fab" title="Ajouter une dépense" aria-label="Ajouter une dépense">+</button>
+<nav class="bottom" id="tabs"></nav>
 <div id="modal-root"></div>
 
 <script>
@@ -161,8 +200,9 @@ svg text{fill:var(--muted);font-size:11px}
 let D = null;
 const CLE = "cdf_donnees";
 const COLL = ["categories","comptes","reserves","recurrentes","operations"];
-const TABS = [["bord","Tableau de bord"],["ops","Opérations"],["budget","Budget"],["comptes","Comptes & réserves"],["recur","Récurrentes"],["reglages","Réglages"]];
-let tab = lsGet("tab") || "bord";
+const TABS = [["accueil","🏠","Accueil"],["ops","🧾","Dépenses"],["monbudget","📋","Mon budget"],["plus","☰","Plus"]];
+const SOUS_PLUS = {bord:"Analyse détaillée", budget:"Budget par catégorie", comptes:"Comptes & épargne", reglages:"Réglages"};
+let tab = "accueil";
 let mois = moisCourant();
 let filtres = {mois: moisCourant(), type:"", cat:"", pers:"", compte:"", q:""};
 
@@ -372,16 +412,18 @@ function soldeReserve(id){
    ============================================================ */
 function rendu(){
   if(!D) return;
-  const sel=document.getElementById("moi");
-  sel.innerHTML=persOptions().map(p=>`<option ${p===moi()?"selected":""}>${h(p)}</option>`).join("");
-  document.getElementById("tabs").innerHTML=TABS.map(([k,l])=>`<button data-tab="${k}" class="${k===tab?"on":""}">${l}</button>`).join("");
+  const parent = SOUS_PLUS[tab] ? "plus" : tab;
+  document.getElementById("tabs").innerHTML=TABS.map(([k,i,l])=>`<button data-tab="${k}" class="${k===parent?"on":""}"><span class="i">${i}</span>${l}</button>`).join("");
   const y=window.scrollY;
   const main=document.getElementById("main");
   const accueil=!!D.local.accueil;
-  document.getElementById("fab").hidden=accueil; document.getElementById("tabs").hidden=accueil; document.getElementById("btn-sync").hidden=accueil; document.querySelector(".who").hidden=accueil;
+  document.getElementById("fab").hidden=accueil; document.getElementById("tabs").hidden=accueil; document.getElementById("btn-sync").hidden=accueil;
   majBadge();
-  if(accueil){ main.innerHTML=vueAccueil(); return; }
-  main.innerHTML = ({bord:vueBord,ops:vueOps,budget:vueBudget,comptes:vueComptes,recur:vueRecur,reglages:vueReglages}[tab]||vueBord)();
+  if(accueil){ main.className=""; main.innerHTML=vueAccueil(); return; }
+  autoRecurrentes();
+  main.className = (tab==="bord"||tab==="budget"||tab==="comptes"||tab==="reglages") ? "large" : "";
+  const retour = SOUS_PLUS[tab] ? `<button class="btn ghost sm back" data-tab="plus">‹ Plus</button>` : "";
+  main.innerHTML = retour + ({accueil:vueReste,ops:vueOps,monbudget:vueMonBudget,plus:vuePlus,bord:vueBord,budget:vueBudget,comptes:vueComptes,reglages:vueReglages}[tab]||vueReste)();
   window.scrollTo(0,y);
 }
 function estInstallee(){ return matchMedia("(display-mode: standalone)").matches || navigator.standalone===true; }
@@ -484,6 +526,7 @@ function detailOp(o){
   if(o.type==="virement") parts.push((compte(o.compteId)?.nom||"?")+" → "+(compte(o.compteDestId)?.nom||"?"));
   else { if(cat(o.categorieId)&&o.libelle) parts.push(cat(o.categorieId).nom); if(o.type==="epargne"&&o.libelle) parts.push(reserve(o.reserveId)?.nom||""); parts.push(compte(o.compteId)?.nom||""); }
   if(o.note) parts.push(o.note);
+  if(o.recId) parts.unshift("charge fixe");
   return parts.filter(Boolean).join(" · ");
 }
 function signeOp(o){ return (o.type==="revenu"||o.type==="retrait")?1:o.type==="virement"?0:-1; }
@@ -507,16 +550,18 @@ function vueOps(){
   }).join("");
   const opt=(arr,val)=>arr.map(([v,l])=>`<option value="${h(v)}" ${v===val?"selected":""}>${h(l)}</option>`).join("");
   return `
-  <div class="bar"><h2>Opérations</h2><div class="grow"></div><button class="btn pri" data-act="nouvelle">+ Nouvelle opération</button></div>
+  <div class="bar"><h2>Mes dépenses</h2><div class="grow"></div><button class="btn pri sm" data-act="nouvelle">+ Ajouter</button></div>
   <div class="filters">
     <select data-filtre="mois">${opt([["","Tous les mois"],...moisDispo.map(m=>[m,nomMois(m)])],f.mois)}</select>
+    <input type="search" data-filtre="q" placeholder="Rechercher…" value="${h(f.q)}">
+  </div>
+  <details class="more" ${f.type||f.cat||f.pers||f.compte?"open":""}><summary>Plus de filtres</summary><div class="filters">
     <select data-filtre="type">${opt([["","Tous types"],["depense","Dépenses"],["revenu","Revenus"],["virement","Virements"],["epargne","Épargne"],["retrait","Retraits de réserve"]],f.type)}</select>
     <select data-filtre="cat">${opt([["","Toutes catégories"],...D.categories.map(c=>[c.id,c.nom])],f.cat)}</select>
     <select data-filtre="pers">${opt([["","Tout le monde"],...persOptions().map(p=>[p,p])],f.pers)}</select>
     <select data-filtre="compte">${opt([["","Tous comptes"],...D.comptes.map(c=>[c.id,c.nom])],f.compte)}</select>
-    <input type="search" data-filtre="q" placeholder="Rechercher…" value="${h(f.q)}">
-  </div>
-  <p class="note">${ops.length} opération(s) · solde de la sélection : <b class="num ${cls(tot)}">${eur(tot)}</b> · <span class="hint">La case à droite sert à pointer ce que vous avez vu sur le relevé bancaire.</span></p>
+  </div></details>
+  <p class="note">${ops.length} opération(s) · total : <b class="num ${cls(tot)}">${eur(tot)}</b> · <span class="hint">Touchez une ligne pour la modifier. La case sert à cocher ce que vous avez vu sur le relevé.</span></p>
   <div class="list">${listeHtml||`<div class="empty">Aucune opération ici.<br><br><button class="btn pri" data-act="nouvelle">Ajouter la première</button></div>`}</div>`;
 }
 
@@ -568,26 +613,128 @@ function vueComptes(){
   </div>`;
 }
 
-function vueRecur(){
-  const deja=new Set(opsDuMois(mois).filter(o=>o.recId).map(o=>o.recId));
-  const actives=D.recurrentes.filter(r=>r.actif), aFaire=actives.filter(r=>!deja.has(r.id));
-  const ligne=r=>{ const e=versEur(r.montant,r.devise);
-    return `<tr style="${r.actif?"":"opacity:.5"}"><td><b>${h(r.libelle)}</b><div class="note">${h(cat(r.categorieId)?.nom||(r.type==="epargne"?"Épargne → "+(reserve(r.reserveId)?.nom||""):""))} · le ${r.jour} · ${h(compte(r.compteId)?.nom||"")}</div></td>
-      <td><span class="tag ${persClasse(r.personne)}">${h(r.personne)}</span></td>
-      <td class="r num ${r.type==="revenu"?"pos":""}">${r.type==="revenu"?"+":"−"}${eur(e)}${r.devise==="CHF"?`<div class="note">${chf(r.montant)}</div>`:""}</td>
-      <td class="r">${deja.has(r.id)?`<span class="tag" title="Déjà ajoutée ce mois">✓ ${h(nomMoisCourt(mois))}</span>`:""}</td>
-      <td class="r"><button class="icon" data-recur="${r.id}" title="Modifier">✎</button></td></tr>`; };
-  const sum=t=>actives.filter(r=>r.type===t).reduce((a,r)=>a+versEur(r.montant,r.devise),0);
-  return `
-  <div class="bar">${selMois()}<div class="grow"></div><button class="btn sm" data-act="recur-new">+ Récurrente</button>
-    <button class="btn pri" data-act="recur-gen" ${aFaire.length?"":"disabled"}>Ajouter ${aFaire.length} opération(s) pour ${h(nomMois(mois))}</button></div>
-  <p class="note">Les opérations qui reviennent tous les mois (loyer, salaire, abonnements…). Un clic sur le bouton vert les ajoute toutes d'un coup dans le mois choisi, sans doublon. Les montants en CHF sont convertis au taux des réglages (${String(D.reglages.tauxCHF).replace(".",",")}).</p>
-  <div class="grid g3" style="margin-bottom:16px">
-    <div class="card kpi"><div class="lbl">Revenus récurrents</div><div class="val num pos">${eur(sum("revenu"))}</div></div>
-    <div class="card kpi"><div class="lbl">Dépenses récurrentes</div><div class="val num neg">${eur(sum("depense"))}</div></div>
-    <div class="card kpi hero"><div class="lbl">Différence</div><div class="val num">${eur(sum("revenu")-sum("depense")-sum("epargne"))}</div></div>
+/* ---------- Revenus et charges fixes : comptés automatiquement chaque mois ---------- */
+function opDeRec(r,m,id){
+  const jour=String(Math.min(r.jour||1,joursDansMois(m))).padStart(2,"0");
+  return {id,cree:m+"-01",recId:r.id,type:r.type,date:m+"-"+jour,libelle:r.libelle,devise:r.devise,
+    montant:versEur(r.montant,r.devise),montantOrigine:r.devise==="CHF"?r.montant:null,
+    categorieId:r.type==="epargne"?"":r.categorieId,compteId:r.compteId,compteDestId:"",
+    reserveId:r.type==="epargne"?r.reserveId:"",personne:r.personne,note:"",pointe:false,maj:1};
+}
+// Crée (ou met à jour) les opérations du mois en cours à partir de « Mon budget ».
+// Identifiant fixe => les deux téléphones créent la même opération, jamais de doublon.
+// maj:1 => une modification faite à la main gagne toujours.
+function autoRecurrentes(){
+  const m=moisCourant(), recs=new Map(D.recurrentes.map(r=>[r.id,r])); let ch=false;
+  D.operations=D.operations.filter(o=>{
+    if(!String(o.id).startsWith("auto_")||o.maj!==1||o.date.slice(0,7)!==m) return true;
+    const r=recs.get(o.recId); if(!r||!r.actif){ ch=true; return false; }
+    const x=opDeRec(r,m,o.id); if(sansMaj(x)!==sansMaj(o)){ Object.keys(o).forEach(k=>delete o[k]); Object.assign(o,x); ch=true; }
+    return true;
+  });
+  const presents=new Set(D.operations.filter(o=>o.recId&&o.date.slice(0,7)===m).map(o=>o.recId));
+  for(const r of D.recurrentes){
+    const id=`auto_${r.id}_${m}`;
+    if(!r.actif||presents.has(r.id)||D.supprimes[id]) continue;
+    D.operations.push(opDeRec(r,m,id)); ch=true;
+  }
+  if(ch) enregistrer();
+}
+// Le calcul « façon Pilote » : revenus − charges fixes − épargne = pour vivre ; moins les dépenses du quotidien = reste.
+function planMois(m){
+  const ops=opsDuMois(m), aRec=ops.some(o=>o.recId);
+  let rev=0, fixes=0, epa=0, quot=0; const parCat={}, parPers={}, quotOps=[];
+  for(const o of ops){
+    if(o.type==="revenu") rev+=o.montant;
+    else if(o.type==="depense"){
+      if(o.recId) fixes+=o.montant;
+      else { quot+=o.montant; parCat[o.categorieId]=(parCat[o.categorieId]||0)+o.montant; const p=o.personne||PERS_COMMUN; parPers[p]=(parPers[p]||0)+o.montant; quotOps.push(o); }
+    }
+    else if(o.type==="epargne") epa+=o.montant;
+    else if(o.type==="retrait") epa-=o.montant;
+  }
+  if(!aRec) for(const r of D.recurrentes.filter(r=>r.actif)){ const e=versEur(r.montant,r.devise); if(r.type==="revenu") rev+=e; else if(r.type==="depense") fixes+=e; else if(r.type==="epargne") epa+=e; }
+  const dispo=r2(rev-fixes-epa);
+  return {rev:r2(rev),fixes:r2(fixes),epa:r2(epa),quot:r2(quot),dispo,reste:r2(dispo-quot),parCat,parPers,quotOps};
+}
+function etat(depense,budget){ if(budget<=0) return depense>0?"bad":""; const p=depense/budget; return p>=1?"bad":p>=.8?"warn":""; }
+
+function vueReste(){
+  const p=planMois(mois), courant=mois===moisCourant(), nj=joursDansMois(mois);
+  const pct=p.dispo>0?Math.min(100,p.quot/p.dispo*100):(p.quot?100:0), st=etat(p.quot,p.dispo);
+  let sous="", semaine="";
+  if(courant){
+    const auj=new Date(), j=auj.getDate(), restants=nj-j+1;
+    sous = p.reste>0 ? `jusqu'au ${nj} ${h(nomMois(mois).split(" ")[0])} · soit environ <b>${eur(p.reste/restants)}</b> par jour` : `Le budget du mois est dépassé`;
+    // semaine du lundi au dimanche (limitée au mois)
+    const lun=new Date(auj); lun.setDate(j-((auj.getDay()+6)%7)); const dim=new Date(lun); dim.setDate(lun.getDate()+6);
+    const iso=d=>d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+    const deb=iso(lun)<mois+"-01"?mois+"-01":iso(lun), fin=iso(dim)>mois+"-"+nj?mois+"-"+nj:iso(dim);
+    const joursSem=(new Date(fin+"T12:00")-new Date(deb+"T12:00"))/864e5+1;
+    const budSem=r2(p.dispo*joursSem/nj), depSem=r2(p.quotOps.filter(o=>o.date>=deb&&o.date<=fin).reduce((a,o)=>a+o.montant,0));
+    const s2=etat(depSem,budSem), resteSem=r2(budSem-depSem);
+    semaine=`<div class="card"><h3>📅 Cette semaine</h3>
+      <div style="display:flex;justify-content:space-between;align-items:baseline"><span class="num ${resteSem<0?"neg":""}" style="font-size:24px;font-weight:800">${eur(resteSem)}</span><span class="note">restants sur ${eur(budSem)}</span></div>
+      <div class="gbar"><i class="${s2}" style="width:${budSem>0?Math.min(100,depSem/budSem*100):100}%"></i></div>
+      <div class="note">${eur(depSem)} dépensés du ${new Date(deb+"T12:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short"})} au ${new Date(fin+"T12:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short"})}</div></div>`;
+  } else sous = mois<moisCourant() ? "à la fin du mois" : "prévu pour ce mois";
+
+  const top=Object.entries(p.parCat).sort((a,b)=>b[1]-a[1]);
+  const maxC=top.length?top[0][1]:1;
+  const cats = top.length ? top.map(([id,v])=>{ const c=cat(id); return `<div style="margin-bottom:10px"><div style="display:flex;justify-content:space-between"><span>${c?.icone||""} ${h(c?.nom||"?")}</span><b class="num">${eur(v)}</b></div><div class="gbar" style="margin:4px 0 0"><i style="width:${v/maxC*100}%;background:var(--accent)"></i></div></div>`; }).join("") : `<div class="note">Aucune dépense du quotidien pour l'instant.</div>`;
+  const pp=persOptions(), couleurs=["var(--p1)","var(--p2)","var(--p3)"];
+  const qui = pp.map((x,i)=>`<span><i style="background:${couleurs[i]}"></i>${h(x)} : <b class="num">${eur(p.parPers[x]||0)}</b></span>`).join("");
+  const dernieres = [...p.quotOps].sort((a,b)=>b.date.localeCompare(a.date)||(b.cree||"").localeCompare(a.cree||"")).slice(0,5);
+
+  return `<div class="stack">
+  <div class="bar" style="margin:0;justify-content:center">${selMois()}</div>
+  <div class="card hero-big ${st}">
+    <div class="lbl">${courant?"Il vous reste":mois<moisCourant()?"Il vous restait":"Il vous restera"}</div>
+    <div class="val num">${eur(p.reste)}</div>
+    <div class="sub">${sous}</div>
+    <div class="gauge"><i style="width:${pct}%"></i></div>
+    <div class="gauge-txt"><span>${eur(p.quot)} dépensés</span><span>sur ${eur(p.dispo)}</span></div>
   </div>
-  <div class="card scroll"><table><thead><tr><th>Libellé</th><th>Qui</th><th class="r">Montant</th><th></th><th></th></tr></thead><tbody>${D.recurrentes.map(ligne).join("")}</tbody></table></div>`;
+  ${semaine}
+  <div class="card"><h3>🧮 Le calcul du mois</h3><div class="lines num">
+    <div class="l"><span>💶 Revenus</span><span class="pos">+ ${eur(p.rev)}</span></div>
+    <div class="l"><span>🏠 Charges fixes</span><span>− ${eur(p.fixes)}</span></div>
+    ${p.epa?`<div class="l"><span>🐷 Épargne</span><span>− ${eur(p.epa)}</span></div>`:""}
+    <div class="l t"><span>Pour vivre ce mois</span><span>${eur(p.dispo)}</span></div>
+    <div class="l"><span>🛒 Dépenses du quotidien</span><span>− ${eur(p.quot)}</span></div>
+    <div class="l t"><span>Reste</span><span class="${p.reste<0?"neg":"pos"}">${eur(p.reste)}</span></div>
+  </div><p class="note" style="margin:8px 0 0">Revenus et charges fixes viennent de <a href="#" data-tab="monbudget">Mon budget</a>.</p></div>
+  <div class="card"><h3>📊 Où part l'argent</h3>${cats}</div>
+  <div class="card"><h3>👫 Qui a dépensé</h3><div class="legend" style="margin:0">${qui}</div></div>
+  <div class="card"><div class="bar" style="margin-bottom:6px"><h3 style="margin:0">🕐 Dernières dépenses</h3><div class="grow"></div><button class="btn sm ghost" data-tab="ops">Tout voir ›</button></div>
+    ${dernieres.length?dernieres.map(o=>`<div class="mline" data-edit="${o.id}"><span style="font-size:20px">${iconeOp(o)}</span><div class="mid"><div class="t">${h(libelleOp(o))}</div><div class="s">${new Date(o.date+"T12:00").toLocaleDateString("fr-FR",{weekday:"short",day:"numeric",month:"short"})} · ${h(o.personne||"")}</div></div><b class="num">−${eur(o.montant)}</b></div>`).join(""):`<div class="empty" style="padding:14px">Touchez <b>+</b> pour noter une dépense.</div>`}
+  </div></div>`;
+}
+
+function vueMonBudget(){
+  const act=D.recurrentes.filter(r=>r.actif), sum=t=>r2(act.filter(r=>r.type===t).reduce((a,r)=>a+versEur(r.montant,r.devise),0));
+  const rev=sum("revenu"), dep=sum("depense"), epa=sum("epargne"), dispo=r2(rev-dep-epa);
+  const bloc=(titre,type,ajout)=>{ const l=D.recurrentes.filter(r=>r.type===type).sort((a,b)=>(b.actif-a.actif)||versEur(b.montant,b.devise)-versEur(a.montant,a.devise));
+    return `<div class="card"><div class="bar" style="margin-bottom:4px"><h3 style="margin:0">${titre}</h3><div class="grow"></div><b class="num">${eur(sum(type))}</b></div>
+      ${l.map(r=>`<div class="mline ${r.actif?"":"off"}" data-recur="${r.id}"><span style="font-size:20px">${r.type==="epargne"?"🐷":cat(r.categorieId)?.icone||"•"}</span><div class="mid"><div class="t">${h(r.libelle)}${r.actif?"":" (désactivé)"}</div><div class="s"><span class="tag ${persClasse(r.personne)}">${h(r.personne)}</span> le ${r.jour} du mois</div></div><div style="text-align:right"><b class="num">${eur(versEur(r.montant,r.devise))}</b>${r.devise==="CHF"?`<div class="s">${chf(r.montant)}</div>`:""}</div></div>`).join("")||`<div class="note" style="padding:8px 0">Rien pour l'instant.</div>`}
+      <button class="btn sm" style="margin-top:8px" data-act="recur-new:${type}">+ ${ajout}</button></div>`; };
+  return `<div class="stack">
+    <div class="card hero-big"><div class="lbl">Pour vivre chaque mois</div><div class="val num">${eur(dispo)}</div><div class="sub">soit environ ${eur(dispo*7/30.4)} par semaine</div></div>
+    <p class="note" style="margin:10px 2px">Notez ici une seule fois ce qui revient tous les mois. C'est compté <b>automatiquement</b> chaque mois. Touchez une ligne pour la modifier ou la désactiver.</p>
+    ${bloc("💶 Mes revenus","revenu","Ajouter un revenu")}
+    ${bloc("🏠 Mes charges fixes","depense","Ajouter une charge")}
+    ${bloc("🐷 Mon épargne mensuelle","epargne","Ajouter une épargne")}
+  </div>`;
+}
+
+function vuePlus(){
+  const item=(attr,ic,t,s)=>`<button class="btn choice" ${attr}><b>${ic} ${t}</b><span>${s}</span></button>`;
+  return `<h2 style="margin-bottom:14px">Plus</h2>
+    ${item('data-act="sync"',"⇄","Synchroniser / sauvegarder","Échanger les comptes avec l'autre téléphone"+(D.local.modifs?` · <b class="neg">${D.local.modifs} à envoyer</b>`:""))}
+    ${item('data-tab="bord"',"📊","Analyse détaillée","Prévu / réel par catégorie, réserves, évolution sur 6 mois")}
+    ${item('data-tab="budget"',"🎯","Budget par catégorie","Facultatif : un plafond pour chaque catégorie")}
+    ${item('data-tab="comptes"',"🏦","Comptes & épargne","Soldes des comptes bancaires et des réserves")}
+    ${item('data-tab="reglages"',"⚙️","Réglages","Qui utilise ce téléphone, prénoms, taux CHF, catégories, export Excel")}`;
 }
 
 function vueReglages(){
@@ -595,6 +742,7 @@ function vueReglages(){
   return `
   <div class="grid g2">
     <div class="card"><h3>Le foyer</h3>
+      <div class="fld"><label>Sur ce téléphone, je suis</label><select id="moi">${persOptions().map(p=>`<option ${p===moi()?"selected":""}>${h(p)}</option>`).join("")}</select><span class="hint">Les dépenses ajoutées ici seront notées à ce nom.</span></div>
       <div class="row2"><div class="fld"><label>Personne 1</label><input data-pers="0" value="${h(personnes()[0])}"></div><div class="fld"><label>Personne 2</label><input data-pers="1" value="${h(personnes()[1])}"></div></div>
       <div class="fld"><label>Taux de change : 1 CHF = … €</label><input data-taux inputmode="decimal" value="${String(D.reglages.tauxCHF).replace(".",",")}"><span class="hint">Utilisé pour convertir les montants saisis en francs suisses. Les opérations déjà saisies gardent leur montant en euros.</span></div>
     </div>
@@ -626,9 +774,37 @@ function ouvrirModal(html, init){
 function fermerModal(){ document.getElementById("modal-root").innerHTML=""; }
 function options(arr,val){ return arr.map(([v,l])=>`<option value="${h(v)}" ${v===val?"selected":""}>${h(l)}</option>`).join(""); }
 
-function formOperation(op){
+/* Ajout rapide : montant + une touche sur la catégorie = enregistré. */
+function formRapide(){
+  const cs=[...D.categories.filter(c=>c.type==="variable"), ...D.categories.filter(c=>c.type==="fixe")];
+  let devise="EUR";
+  ouvrirModal(`<h2>Nouvelle dépense</h2>
+    <div class="quick-amt"><input id="q-m" inputmode="decimal" placeholder="0,00" autocomplete="off" aria-label="Montant"><button type="button" id="q-dev" aria-label="Devise">€</button></div>
+    <div class="hint" id="q-conv" style="text-align:center;min-height:16px"></div>
+    <input id="q-lib" class="field-simple" placeholder="Note (facultatif) : Leclerc, boulangerie…" autocomplete="off" list="libs-r">
+    <datalist id="libs-r">${[...new Set(D.operations.filter(o=>o.type==="depense"&&!o.recId).map(x=>x.libelle).filter(Boolean))].slice(-100).map(l=>`<option value="${h(l)}">`).join("")}</datalist>
+    <div class="hint" style="margin-top:12px">Touchez la catégorie pour enregistrer :</div>
+    <div class="cats">${cs.map(c=>`<button type="button" data-qcat="${c.id}"><span>${c.icone||"•"}</span>${h(c.nom)}</button>`).join("")}</div>
+    <div class="actions"><button type="button" class="btn ghost sm left" id="q-plus">Revenu, date, compte… ›</button><button type="button" class="btn" id="q-cancel">Annuler</button></div>`, m=>{
+      const inp=m.querySelector("#q-m"), conv=m.querySelector("#q-conv"), dev=m.querySelector("#q-dev");
+      const majConv=()=>{ const v=num(inp.value); conv.textContent = devise==="CHF"&&v ? "≈ "+eur(versEur(v,"CHF")) : ""; };
+      inp.oninput=majConv;
+      dev.onclick=()=>{ devise=devise==="EUR"?"CHF":"EUR"; dev.textContent=devise==="EUR"?"€":"CHF"; majConv(); inp.focus(); };
+      m.querySelector("#q-cancel").onclick=fermerModal;
+      m.querySelector("#q-plus").onclick=()=>{ const v=num(inp.value), lib=m.querySelector("#q-lib").value.trim(); fermerModal(); formOperation(null,{montant:v||"",montantOrigine:v||"",devise,libelle:lib}); };
+      m.querySelectorAll("[data-qcat]").forEach(b=>b.onclick=()=>{
+        const v=Math.abs(num(inp.value));
+        if(!v){ inp.classList.remove("shake"); void inp.offsetWidth; inp.classList.add("shake"); inp.focus(); return; }
+        const x={id:uid(),cree:new Date().toISOString(),type:"depense",date:aujourdhui(),libelle:m.querySelector("#q-lib").value.trim(),devise,
+          montant:versEur(v,devise),montantOrigine:devise==="CHF"?r2(v):null,categorieId:b.dataset.qcat,compteId:D.comptes[0]?.id||"",
+          compteDestId:"",reserveId:"",personne:moi(),note:"",pointe:false};
+        fermerModal(); modifier(d=>d.operations.push(x), `${eur(x.montant)} ajouté en ${cat(x.categorieId)?.nom||""}`);
+      });
+  });
+}
+function formOperation(op,preset){
   const nouv=!op;
-  const o=op?{...op}:{type:"depense",date:aujourdhui(),libelle:"",montant:"",devise:"EUR",categorieId:(D.categories.find(c=>c.type==="variable")||{}).id||"",compteId:D.comptes[0]?.id||"",compteDestId:D.comptes[1]?.id||"",reserveId:D.reserves[0]?.id||"",personne:moi(),note:"",pointe:false};
+  const o=op?{...op}:{type:"depense",date:aujourdhui(),libelle:"",montant:"",devise:"EUR",categorieId:(D.categories.find(c=>c.type==="variable")||{}).id||"",compteId:D.comptes[0]?.id||"",compteDestId:D.comptes[1]?.id||"",reserveId:D.reserves[0]?.id||"",personne:moi(),note:"",pointe:false,...(preset||{})};
   const montantAffiche=o.devise==="CHF"?o.montantOrigine:o.montant;
   const TYPES=[["depense","Dépense"],["revenu","Revenu"],["virement","Virement"],["epargne","Épargne"],["retrait","Retrait réserve"]];
   ouvrirModal(`
@@ -718,7 +894,7 @@ function formCategorie(c){
     x=>{ if(c) modifier(d=>Object.assign(d.categories.find(z=>z.id===c.id),x),"Catégorie enregistrée"); else { const id=uid(); modifier(d=>d.categories.push({id,...x}),"Catégorie ajoutée"); } },
     c && (()=>{ const n=D.operations.filter(o=>o.categorieId===c.id).length+D.recurrentes.filter(o=>o.categorieId===c.id).length; if(n){ alert(`Cette catégorie est utilisée ${n} fois. Changez d'abord la catégorie de ces opérations.`); return; } if(confirm("Supprimer cette catégorie ?")) modifier(d=>{d.categories=d.categories.filter(z=>z.id!==c.id)},"Catégorie supprimée"); }));
 }
-function formRecurrente(r){
+function formRecurrente(r,preset){
   const cats=[...D.categories.map(c=>[c.id,(c.type==="revenu"?"Revenu · ":"Dépense · ")+c.nom])];
   formSimple(r?"Modifier la récurrente":"Nouvelle récurrente",[
       {n:"libelle",l:"Libellé",req:1,ph:"Ex : Loyer"},
@@ -727,7 +903,7 @@ function formRecurrente(r){
       {n:"categorieId",l:"Catégorie (dépense / revenu)",sel:cats},{n:"reserveId",l:"Réserve (si épargne)",sel:D.reserves.map(x=>[x.id,x.nom])},
       {n:"compteId",l:"Compte",sel:D.comptes.map(x=>[x.id,x.nom])},{n:"personne",l:"Qui ?",sel:optPers()},
       {n:"jour",l:"Jour du mois",num:1},{n:"actif",l:"Active",check:1}],
-    r||{type:"depense",devise:"EUR",jour:1,actif:true,personne:PERS_COMMUN,compteId:D.comptes[0]?.id},
+    r||{type:preset||"depense",categorieId:(preset==="revenu"?catsDe("revenu")[0]:D.categories.find(c=>c.type==="fixe"))?.id,reserveId:D.reserves[0]?.id,devise:"EUR",jour:1,actif:true,personne:PERS_COMMUN,compteId:D.comptes[0]?.id},
     x=>{ x.jour=Math.min(31,Math.max(1,Math.round(x.jour||1))); if(x.type==="epargne") x.categorieId=""; else x.reserveId="";
       if(r) modifier(d=>Object.assign(d.recurrentes.find(z=>z.id===r.id),x),"Récurrente enregistrée"); else { const id=uid(); modifier(d=>d.recurrentes.push({id,...x}),"Récurrente ajoutée"); } },
     r && (()=>{ if(confirm("Supprimer cette récurrente ? (les opérations déjà créées restent)")) modifier(d=>{d.recurrentes=d.recurrentes.filter(z=>z.id!==r.id)},"Récurrente supprimée"); }));
@@ -744,7 +920,8 @@ function action(a){
   if(a==="mois-"){ mois=decaleMois(mois,-1); rendu(); }
   else if(a==="mois+"){ mois=decaleMois(mois,1); rendu(); }
   else if(a==="mois="){ mois=moisCourant(); rendu(); }
-  else if(a==="nouvelle") formOperation();
+  else if(a==="nouvelle") formRapide();
+  else if(a.startsWith("recur-new:")) formRecurrente(null,a.split(":")[1]);
   else if(a==="compte-new") formCompte();
   else if(a==="reserve-new") formReserve();
   else if(a==="cat-new") formCategorie();
@@ -811,7 +988,7 @@ document.addEventListener("submit",e=>{
 });
 let tq; document.addEventListener("input",e=>{ if(e.target.dataset.filtre==="q"){ filtres.q=e.target.value; clearTimeout(tq); tq=setTimeout(()=>{ const pos=e.target.selectionStart; rendu(); const s=document.querySelector('[data-filtre="q"]'); s.focus(); s.setSelectionRange(pos,pos); },250); } });
 document.addEventListener("keydown",e=>{ if(e.key==="Escape") fermerModal(); if(e.key==="Enter"&&e.target.classList?.contains("inl")){ e.target.blur(); } });
-document.getElementById("fab").onclick=()=>formOperation();
+document.getElementById("fab").onclick=()=>formRapide();
 
 try{ charger(); rendu(); }
 catch(e){ console.error(e); document.getElementById("main").innerHTML=`<div class="card empty"><h2>Erreur de lecture des données</h2><p>${h(e.message)}</p></div>`; }

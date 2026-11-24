@@ -1,6 +1,6 @@
 // Permet d'ouvrir l'application sans connexion : les fichiers sont gardés en cache.
 // Avec du réseau, on prend la dernière version (mise à jour automatique).
-const CACHE = "comptes-du-foyer-v2";
+const CACHE = "comptes-du-foyer-v3";
 const FICHIERS = ["./", "./index.html", "./manifest.webmanifest", "./icone-180.png", "./icone-192.png", "./icone-512.png"];
 
 self.addEventListener("install", e => {
