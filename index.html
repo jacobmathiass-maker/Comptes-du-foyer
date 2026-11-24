@@ -187,7 +187,7 @@ details.more summary{cursor:pointer;color:var(--muted);font-size:13px;margin:2px
   </div>
 </header>
 <main id="main"><div class="empty">Chargement…</div></main>
-<button class="fab" id="fab" title="Ajouter une dépense" aria-label="Ajouter une dépense">+</button>
+<button class="fab" id="fab" title="Ajouter une dépense ou une rentrée d'argent" aria-label="Ajouter une dépense ou une rentrée d'argent">+</button>
 <nav class="bottom" id="tabs"></nav>
 <div id="modal-root"></div>
 
@@ -200,8 +200,8 @@ details.more summary{cursor:pointer;color:var(--muted);font-size:13px;margin:2px
 let D = null;
 const CLE = "cdf_donnees";
 const COLL = ["categories","comptes","reserves","recurrentes","operations"];
-const TABS = [["accueil","🏠","Accueil"],["ops","🧾","Dépenses"],["monbudget","📋","Mon budget"],["plus","☰","Plus"]];
-const SOUS_PLUS = {bord:"Analyse détaillée", budget:"Budget par catégorie", comptes:"Comptes & épargne", reglages:"Réglages"};
+const TABS = [["accueil","🏠","Accueil"],["ops","🧾","Historique"],["monbudget","📋","Mon budget"],["plus","☰","Plus"]];
+const SOUS_PLUS = {convert:"Convertisseur", bord:"Analyse détaillée", budget:"Budget par catégorie", comptes:"Comptes & épargne", reglages:"Réglages"};
 let tab = "accueil";
 let mois = moisCourant();
 let filtres = {mois: moisCourant(), type:"", cat:"", pers:"", compte:"", q:""};
@@ -423,7 +423,7 @@ function rendu(){
   autoRecurrentes();
   main.className = (tab==="bord"||tab==="budget"||tab==="comptes"||tab==="reglages") ? "large" : "";
   const retour = SOUS_PLUS[tab] ? `<button class="btn ghost sm back" data-tab="plus">‹ Plus</button>` : "";
-  main.innerHTML = retour + ({accueil:vueReste,ops:vueOps,monbudget:vueMonBudget,plus:vuePlus,bord:vueBord,budget:vueBudget,comptes:vueComptes,reglages:vueReglages}[tab]||vueReste)();
+  main.innerHTML = retour + ({accueil:vueReste,ops:vueOps,monbudget:vueMonBudget,plus:vuePlus,convert:vueConvert,bord:vueBord,budget:vueBudget,comptes:vueComptes,reglages:vueReglages}[tab]||vueReste)();
   window.scrollTo(0,y);
 }
 function estInstallee(){ return matchMedia("(display-mode: standalone)").matches || navigator.standalone===true; }
@@ -550,7 +550,7 @@ function vueOps(){
   }).join("");
   const opt=(arr,val)=>arr.map(([v,l])=>`<option value="${h(v)}" ${v===val?"selected":""}>${h(l)}</option>`).join("");
   return `
-  <div class="bar"><h2>Mes dépenses</h2><div class="grow"></div><button class="btn pri sm" data-act="nouvelle">+ Ajouter</button></div>
+  <div class="bar"><h2>Historique</h2><div class="grow"></div><button class="btn sm" data-act="nouvelle">➖ Dépense</button><button class="btn sm" style="color:var(--good)" data-act="nouvelle-rentree">➕ Rentrée</button></div>
   <div class="filters">
     <select data-filtre="mois">${opt([["","Tous les mois"],...moisDispo.map(m=>[m,nomMois(m)])],f.mois)}</select>
     <input type="search" data-filtre="q" placeholder="Rechercher…" value="${h(f.q)}">
@@ -684,7 +684,7 @@ function vueReste(){
   const cats = top.length ? top.map(([id,v])=>{ const c=cat(id); return `<div style="margin-bottom:10px"><div style="display:flex;justify-content:space-between"><span>${c?.icone||""} ${h(c?.nom||"?")}</span><b class="num">${eur(v)}</b></div><div class="gbar" style="margin:4px 0 0"><i style="width:${v/maxC*100}%;background:var(--accent)"></i></div></div>`; }).join("") : `<div class="note">Aucune dépense du quotidien pour l'instant.</div>`;
   const pp=persOptions(), couleurs=["var(--p1)","var(--p2)","var(--p3)"];
   const qui = pp.map((x,i)=>`<span><i style="background:${couleurs[i]}"></i>${h(x)} : <b class="num">${eur(p.parPers[x]||0)}</b></span>`).join("");
-  const dernieres = [...p.quotOps].sort((a,b)=>b.date.localeCompare(a.date)||(b.cree||"").localeCompare(a.cree||"")).slice(0,5);
+  const dernieres = opsDuMois(mois).filter(o=>!o.recId&&(o.type==="depense"||o.type==="revenu")).sort((a,b)=>b.date.localeCompare(a.date)||(b.cree||"").localeCompare(a.cree||"")).slice(0,5);
 
   return `<div class="stack">
   <div class="bar" style="margin:0;justify-content:center">${selMois()}</div>
@@ -695,6 +695,7 @@ function vueReste(){
     <div class="gauge"><i style="width:${pct}%"></i></div>
     <div class="gauge-txt"><span>${eur(p.quot)} dépensés</span><span>sur ${eur(p.dispo)}</span></div>
   </div>
+  <div class="row2"><button class="btn" style="padding:12px" data-act="nouvelle">➖ Dépense</button><button class="btn" style="padding:12px;color:var(--good)" data-act="nouvelle-rentree">➕ Rentrée d'argent</button></div>
   ${semaine}
   <div class="card"><h3>🧮 Le calcul du mois</h3><div class="lines num">
     <div class="l"><span>💶 Revenus</span><span class="pos">+ ${eur(p.rev)}</span></div>
@@ -706,8 +707,8 @@ function vueReste(){
   </div><p class="note" style="margin:8px 0 0">Revenus et charges fixes viennent de <a href="#" data-tab="monbudget">Mon budget</a>.</p></div>
   <div class="card"><h3>📊 Où part l'argent</h3>${cats}</div>
   <div class="card"><h3>👫 Qui a dépensé</h3><div class="legend" style="margin:0">${qui}</div></div>
-  <div class="card"><div class="bar" style="margin-bottom:6px"><h3 style="margin:0">🕐 Dernières dépenses</h3><div class="grow"></div><button class="btn sm ghost" data-tab="ops">Tout voir ›</button></div>
-    ${dernieres.length?dernieres.map(o=>`<div class="mline" data-edit="${o.id}"><span style="font-size:20px">${iconeOp(o)}</span><div class="mid"><div class="t">${h(libelleOp(o))}</div><div class="s">${new Date(o.date+"T12:00").toLocaleDateString("fr-FR",{weekday:"short",day:"numeric",month:"short"})} · ${h(o.personne||"")}</div></div><b class="num">−${eur(o.montant)}</b></div>`).join(""):`<div class="empty" style="padding:14px">Touchez <b>+</b> pour noter une dépense.</div>`}
+  <div class="card"><div class="bar" style="margin-bottom:6px"><h3 style="margin:0">🕐 Derniers mouvements</h3><div class="grow"></div><button class="btn sm ghost" data-tab="ops">Tout voir ›</button></div>
+    ${dernieres.length?dernieres.map(o=>`<div class="mline" data-edit="${o.id}"><span style="font-size:20px">${iconeOp(o)}</span><div class="mid"><div class="t">${h(libelleOp(o))}</div><div class="s">${new Date(o.date+"T12:00").toLocaleDateString("fr-FR",{weekday:"short",day:"numeric",month:"short"})} · ${h(o.personne||"")}</div></div><b class="num ${o.type==="revenu"?"pos":""}">${o.type==="revenu"?"+":"−"}${eur(o.montant)}</b></div>`).join(""):`<div class="empty" style="padding:14px">Touchez <b>+</b> pour noter une dépense ou une rentrée d'argent.</div>`}
   </div></div>`;
 }
 
@@ -731,6 +732,7 @@ function vuePlus(){
   const item=(attr,ic,t,s)=>`<button class="btn choice" ${attr}><b>${ic} ${t}</b><span>${s}</span></button>`;
   return `<h2 style="margin-bottom:14px">Plus</h2>
     ${item('data-act="sync"',"⇄","Synchroniser / sauvegarder","Échanger les comptes avec l'autre téléphone"+(D.local.modifs?` · <b class="neg">${D.local.modifs} à envoyer</b>`:""))}
+    ${item('data-tab="convert"',"💱","Convertisseur € / CHF","Au taux du jour"+(TAUX?` · 1 € = ${String(TAUX.eurchf).replace(".",",")} CHF`:""))}
     ${item('data-tab="bord"',"📊","Analyse détaillée","Prévu / réel par catégorie, réserves, évolution sur 6 mois")}
     ${item('data-tab="budget"',"🎯","Budget par catégorie","Facultatif : un plafond pour chaque catégorie")}
     ${item('data-tab="comptes"',"🏦","Comptes & épargne","Soldes des comptes bancaires et des réserves")}
@@ -774,32 +776,107 @@ function ouvrirModal(html, init){
 function fermerModal(){ document.getElementById("modal-root").innerHTML=""; }
 function options(arr,val){ return arr.map(([v,l])=>`<option value="${h(v)}" ${v===val?"selected":""}>${h(l)}</option>`).join(""); }
 
+/* ---------- Convertisseur € / CHF au taux du jour ----------
+   Taux officiel de la Banque centrale européenne via api.frankfurter.dev (gratuit, sans compte).
+   Seul le taux est demandé : aucune donnée personnelle n'est envoyée. Hors ligne : dernier taux connu. */
+let TAUX = (()=>{ try{ return JSON.parse(lsGet("taux")||"null"); }catch(e){ return null; } })(); // {eurchf, date, le}
+let CONV = {eur:"100", chf:"", dernier:"eur"}, majTauxEnCours=false, derniereTentative=0;
+function tauxEurChf(){ return TAUX?.eurchf || r4(1/(D.reglages.tauxCHF||1)); }
+function r4(v){ return Math.round(v*10000)/10000; }
+function fr(v,d=2){ return Number(v).toLocaleString("fr-FR",{minimumFractionDigits:d,maximumFractionDigits:d}); }
+async function majTaux(force){
+  if(majTauxEnCours) return;
+  if(!force && TAUX && Date.now()-TAUX.le < 3*3600e3) return;
+  if(!force && Date.now()-derniereTentative < 60e3) return; // hors ligne : on ne réessaie pas en boucle
+  majTauxEnCours=true; derniereTentative=Date.now(); let ok=false;
+  try{
+    const r=await fetch("https://api.frankfurter.dev/v1/latest?base=EUR&symbols=CHF",{cache:"no-store"});
+    const j=await r.json(), v=j?.rates?.CHF;
+    if(!(v>0)) throw new Error("taux absent");
+    TAUX={eurchf:v,date:j.date,le:Date.now()}; lsSet("taux",JSON.stringify(TAUX));
+    ok=true; if(force) toast("Taux mis à jour : 1 € = "+fr(v,4)+" CHF");
+  }catch(e){ if(force) toast("Pas de connexion : on garde le dernier taux connu"); }
+  finally{ majTauxEnCours=false; if(ok && (tab==="convert"||tab==="plus") && !document.activeElement?.dataset?.conv) rendu(); }
+}
+function vueConvert(){
+  setTimeout(()=>majTaux(false),0);
+  const t=tauxEurChf();
+  { const k=CONV.dernier, autre=k==="eur"?"chf":"eur", v=num(CONV[k]); CONV[autre]= String(CONV[k]).trim()==="" ? "" : fr(k==="eur"?v*t:v/t); }
+  const source = TAUX ? `Taux officiel BCE du ${new Date(TAUX.date+"T12:00").toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long"})}${Date.now()-TAUX.le>36e5*24?" (pas de réseau depuis, dernier taux connu)":""}`
+                       : "Pas encore de taux en ligne : taux de vos réglages en attendant";
+  return `<div class="stack">
+    <div class="card hero-big"><div class="lbl">Taux du jour</div><div class="val num" style="font-size:34px">1 € = ${fr(t,4)} CHF</div><div class="sub">1 CHF = ${fr(1/t,4)} €</div></div>
+    <div class="card">
+      <div class="fld"><label>Euros (€)</label><input class="field-simple num" style="font-size:24px;font-weight:700" inputmode="decimal" data-conv="eur" value="${h(CONV.eur)}" placeholder="0,00"></div>
+      <div style="text-align:center;font-size:22px;color:var(--muted);margin:-4px 0 6px">⇅</div>
+      <div class="fld"><label>Francs suisses (CHF)</label><input class="field-simple num" style="font-size:24px;font-weight:700" inputmode="decimal" data-conv="chf" value="${h(CONV.chf)}" placeholder="0,00"></div>
+      <p class="note" style="margin:4px 0 0">Tapez dans l'une ou l'autre case, la conversion se fait toute seule.</p>
+    </div>
+    <div class="card"><p class="note" style="margin-top:0">${h(source)}. Les banques et bureaux de change prennent souvent 1 à 2 % de plus.</p>
+      <div class="actions" style="justify-content:flex-start">
+        <button class="btn" data-act="taux-maj">🔄 Actualiser le taux</button>
+      </div>
+      <p class="hint" style="margin:8px 0 0">À titre indicatif uniquement : ce convertisseur ne modifie rien dans vos comptes.</p>
+    </div></div>`;
+}
+document.addEventListener("input",e=>{
+  const k=e.target.dataset?.conv; if(!k) return;
+  const t=tauxEurChf(), v=num(e.target.value), autre=k==="eur"?"chf":"eur";
+  CONV[k]=e.target.value; CONV.dernier=k; CONV[autre]= e.target.value.trim()==="" ? "" : fr(k==="eur"?v*t:v/t);
+  const el=document.querySelector(`[data-conv="${autre}"]`); if(el) el.value=CONV[autre];
+});
+
 /* Ajout rapide : montant + une touche sur la catégorie = enregistré. */
-function formRapide(){
-  const cs=[...D.categories.filter(c=>c.type==="variable"), ...D.categories.filter(c=>c.type==="fixe")];
+function formRapide(typeInitial){
+  let type = typeInitial==="revenu" ? "revenu" : "depense";
   let devise="EUR";
-  ouvrirModal(`<h2>Nouvelle dépense</h2>
+  const catsPour=t=> t==="revenu" ? D.categories.filter(c=>c.type==="revenu") : [...D.categories.filter(c=>c.type==="variable"), ...D.categories.filter(c=>c.type==="fixe")];
+  const libsPour=t=>[...new Set(D.operations.filter(o=>o.type===t&&!o.recId).map(x=>x.libelle).filter(Boolean))].slice(-100).map(l=>`<option value="${h(l)}">`).join("");
+  ouvrirModal(`<div class="seg" id="q-type"><button type="button" data-v="depense">➖ Dépense</button><button type="button" data-v="revenu">➕ Rentrée d'argent</button></div>
     <div class="quick-amt"><input id="q-m" inputmode="decimal" placeholder="0,00" autocomplete="off" aria-label="Montant"><button type="button" id="q-dev" aria-label="Devise">€</button></div>
     <div class="hint" id="q-conv" style="text-align:center;min-height:16px"></div>
-    <input id="q-lib" class="field-simple" placeholder="Note (facultatif) : Leclerc, boulangerie…" autocomplete="off" list="libs-r">
-    <datalist id="libs-r">${[...new Set(D.operations.filter(o=>o.type==="depense"&&!o.recId).map(x=>x.libelle).filter(Boolean))].slice(-100).map(l=>`<option value="${h(l)}">`).join("")}</datalist>
+    <input id="q-lib" class="field-simple" autocomplete="off" list="libs-r">
+    <datalist id="libs-r"></datalist>
     <div class="hint" style="margin-top:12px">Touchez la catégorie pour enregistrer :</div>
-    <div class="cats">${cs.map(c=>`<button type="button" data-qcat="${c.id}"><span>${c.icone||"•"}</span>${h(c.nom)}</button>`).join("")}</div>
-    <div class="actions"><button type="button" class="btn ghost sm left" id="q-plus">Revenu, date, compte… ›</button><button type="button" class="btn" id="q-cancel">Annuler</button></div>`, m=>{
+    <div class="cats" id="q-cats"></div>
+    <div class="actions"><button type="button" class="btn ghost sm left" id="q-plus">Date, compte, virement… ›</button><button type="button" class="btn" id="q-cancel">Annuler</button></div>`, m=>{
       const inp=m.querySelector("#q-m"), conv=m.querySelector("#q-conv"), dev=m.querySelector("#q-dev");
+      const majType=()=>{
+        m.querySelectorAll("#q-type button").forEach(b=>b.classList.toggle("on",b.dataset.v===type));
+        inp.style.borderColor = type==="revenu" ? "var(--good)" : "var(--accent)";
+        m.querySelector("#q-lib").placeholder = type==="revenu" ? "Note (facultatif) : salaire novembre, remboursement…" : "Note (facultatif) : Leclerc, boulangerie…";
+        m.querySelector("#libs-r").innerHTML = libsPour(type);
+        m.querySelector("#q-cats").innerHTML = catsPour(type).map(c=>`<button type="button" data-qcat="${c.id}"><span>${c.icone||"•"}</span>${h(c.nom)}</button>`).join("");
+        m.querySelectorAll("[data-qcat]").forEach(b=>b.onclick=()=>enregistrerRapide(b.dataset.qcat));
+      };
+      m.querySelectorAll("#q-type button").forEach(b=>b.onclick=()=>{ type=b.dataset.v; majType(); inp.focus(); });
       const majConv=()=>{ const v=num(inp.value); conv.textContent = devise==="CHF"&&v ? "≈ "+eur(versEur(v,"CHF")) : ""; };
       inp.oninput=majConv;
       dev.onclick=()=>{ devise=devise==="EUR"?"CHF":"EUR"; dev.textContent=devise==="EUR"?"€":"CHF"; majConv(); inp.focus(); };
       m.querySelector("#q-cancel").onclick=fermerModal;
-      m.querySelector("#q-plus").onclick=()=>{ const v=num(inp.value), lib=m.querySelector("#q-lib").value.trim(); fermerModal(); formOperation(null,{montant:v||"",montantOrigine:v||"",devise,libelle:lib}); };
-      m.querySelectorAll("[data-qcat]").forEach(b=>b.onclick=()=>{
+      m.querySelector("#q-plus").onclick=()=>{ const v=num(inp.value), lib=m.querySelector("#q-lib").value.trim(); fermerModal(); formOperation(null,{type,montant:v||"",montantOrigine:v||"",devise,libelle:lib,categorieId:catsPour(type)[0]?.id||""}); };
+      function enregistrerRapide(catId){
         const v=Math.abs(num(inp.value));
         if(!v){ inp.classList.remove("shake"); void inp.offsetWidth; inp.classList.add("shake"); inp.focus(); return; }
-        const x={id:uid(),cree:new Date().toISOString(),type:"depense",date:aujourdhui(),libelle:m.querySelector("#q-lib").value.trim(),devise,
-          montant:versEur(v,devise),montantOrigine:devise==="CHF"?r2(v):null,categorieId:b.dataset.qcat,compteId:D.comptes[0]?.id||"",
+        // Une rentrée va par défaut sur le compte de la personne (salaire…), une dépense sur le compte commun.
+        // Rentrée déjà prévue dans « Mon budget » ce mois-ci (ex. salaire) : on remplace le montant prévu par le montant reçu, pour ne pas compter deux fois.
+        if(type==="revenu"){
+          const prevue=opsDuMois(moisCourant()).find(o=>o.recId&&o.type==="revenu"&&o.categorieId===catId);
+          if(prevue && confirm(`« ${prevue.libelle} » est déjà prévu ce mois-ci dans Mon budget (${eur(prevue.montant)}).\n\nOK : remplacer par le montant reçu (${eur(versEur(v,devise))})\nAnnuler : l'ajouter en plus`)){
+            const id=prevue.id, mt=versEur(v,devise), lib=m.querySelector("#q-lib").value.trim();
+            fermerModal();
+            modifier(d=>{ const z=d.operations.find(o=>o.id===id); if(!z) return; Object.assign(z,{montant:mt,devise,montantOrigine:devise==="CHF"?r2(v):null,date:aujourdhui(),personne:moi()}); if(lib) z.note=lib; },
+              `${prevue.libelle} mis à jour : ${eur(mt)} reçus`);
+            return;
+          }
+        }
+        const compteId = type==="revenu" ? (D.comptes.find(c=>c.proprietaire===moi())||D.comptes[0])?.id||"" : D.comptes[0]?.id||"";
+        const x={id:uid(),cree:new Date().toISOString(),type,date:aujourdhui(),libelle:m.querySelector("#q-lib").value.trim(),devise,
+          montant:versEur(v,devise),montantOrigine:devise==="CHF"?r2(v):null,categorieId:catId,compteId,
           compteDestId:"",reserveId:"",personne:moi(),note:"",pointe:false};
-        fermerModal(); modifier(d=>d.operations.push(x), `${eur(x.montant)} ajouté en ${cat(x.categorieId)?.nom||""}`);
-      });
+        fermerModal(); modifier(d=>d.operations.push(x), `${type==="revenu"?"+ ":""}${eur(x.montant)} ajouté en ${cat(x.categorieId)?.nom||""}`);
+      }
+      majType();
   });
 }
 function formOperation(op,preset){
@@ -920,7 +997,8 @@ function action(a){
   if(a==="mois-"){ mois=decaleMois(mois,-1); rendu(); }
   else if(a==="mois+"){ mois=decaleMois(mois,1); rendu(); }
   else if(a==="mois="){ mois=moisCourant(); rendu(); }
-  else if(a==="nouvelle") formRapide();
+  else if(a==="nouvelle") formRapide("depense");
+  else if(a==="nouvelle-rentree") formRapide("revenu");
   else if(a.startsWith("recur-new:")) formRecurrente(null,a.split(":")[1]);
   else if(a==="compte-new") formCompte();
   else if(a==="reserve-new") formReserve();
@@ -952,7 +1030,7 @@ function action(a){
   }
   else if(a==="sync") vueSync();
   else if(a==="envoyer") envoyer();
-}
+  else if(a==="taux-maj") majTaux(true);}
 
 document.addEventListener("click",e=>{
   const t=e.target.closest("[data-tab],[data-act],[data-edit],[data-compte],[data-reserve],[data-cat],[data-recur],[data-pointe]");
