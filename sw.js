@@ -1,6 +1,6 @@
 // Permet d'ouvrir l'application sans connexion : les fichiers sont gardés en cache.
 // Avec du réseau, on prend la dernière version (mise à jour automatique).
-const CACHE = "comptes-du-foyer-v23";
+const CACHE = "comptes-du-foyer-v24";
 const CACHE_OUTILS = "comptes-du-foyer-outils-v1"; // lecture des tickets (Tesseract), gardée entre les versions
 const FICHIERS = ["./", "./index.html", "./manifest.webmanifest", "./icone-180.png", "./icone-192.png", "./icone-512.png", "./icone-maskable-512.png"];
 

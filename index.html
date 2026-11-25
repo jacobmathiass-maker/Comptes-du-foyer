@@ -1121,8 +1121,8 @@ function vueReste(){
       <div class="gauge-txt" style="margin-top:12px;font-size:14px"><span>Prévu au ${h(finTxt)}</span><b class="num">${fmtP(S.prevu)}</b></div>
       ${S.prochainRevenu?`<div class="gauge-txt" style="font-size:13px"><span>Prochain revenu</span><span>${h(S.prochainRevenu.libelle)} · ${h(dateCourte(S.prochainRevenu.date))}</span></div>`:""}
     </div>`;
-    comptesCarte=`${comptesActifs().length>1?`<div class="card"><div class="bar" style="margin-bottom:2px"><h3 style="margin:0">🏦 Mes comptes</h3><div class="grow"></div>${new Set(comptesVisibles().map(deviseCompte)).size>1?`<button class="btn sm ghost" data-act="change">💱 Changer</button>`:""}<button class="btn sm ghost" data-tab="comptes">Gérer ›</button></div>
-      ${comptesActifs().map(c=>{ const sc=soldeCompte(c.id); return `<div class="mline" data-act="ops-compte:${c.id}">${pastille(c,30)}<div class="mid"><div class="t">${h(c.nom)}</div><div class="s">prévu fin du mois : ${fmtCompte(projection(c.id).fin,c)}</div></div><div style="text-align:right"><b class="num ${cls(sc)}">${fmtCompte(sc,c)}</b>${deviseCompte(c)!==dp()?`<div class="s">≈ ${fmtP(convertir(sc,deviseCompte(c),dp()))}</div>`:""}</div></div>`; }).join("")}</div>`:""}`;
+    comptesCarte=`${comptesActifs().length>=1?`<div class="card"><div class="bar" style="margin-bottom:2px"><h3 style="margin:0">🏦 Mes comptes</h3><div class="grow"></div>${new Set(comptesVisibles().map(deviseCompte)).size>1?`<button class="btn sm ghost" data-act="change">💱 Changer</button>`:""}<button class="btn sm" data-act="compte-new">+ Compte</button><button class="btn sm ghost" data-tab="comptes">Gérer ›</button></div>
+      ${comptesActifs().map(c=>{ const sc=soldeCompte(c.id); return `<div class="mline" data-act="ops-compte:${c.id}">${pastille(c,30)}<div class="mid"><div class="t">${h(c.nom)}</div><div class="s">${c.banque?h(c.banque)+" · ":""}prévu fin du mois : ${fmtCompte(projection(c.id).fin,c)}</div></div><div style="text-align:right"><b class="num ${cls(sc)}">${fmtCompte(sc,c)}</b>${deviseCompte(c)!==dp()?`<div class="s">≈ ${fmtP(convertir(sc,deviseCompte(c),dp()))}</div>`:""}</div></div>`; }).join("")}</div>`:""}`;
     creditsCarte=`${(()=>{ const cs=D.recurrentes.filter(creditActif); if(!cs.length) return "";
       const tot=r2(cs.reduce((a,r)=>a+versEur(r.montant,r.devise),0)), pr=cs.map(r=>[r,etatCredit(r).prochaine]).filter(x=>x[1]).sort((a,b)=>a[1].date.localeCompare(b[1].date))[0];
       return `<div class="card" data-tab="credits" style="cursor:pointer"><div class="bar" style="margin:0"><h3 style="margin:0">💳 Crédits en cours</h3><div class="grow"></div><b class="num">${eur(tot)}/mois</b></div>
@@ -1176,7 +1176,8 @@ function vueReste(){
   };
   const P=prefsAccueil();
   // Mois passés ou futurs : le résumé du mois reste toujours visible.
-  const visibles=P.ordre.filter(id=>!P.caches.includes(id) || (!courant&&id==="vivre"));
+  const simple=modeSimple();
+  const visibles=P.ordre.filter(id=>(!courant&&id==="vivre") || (!P.caches.includes(id) && (!simple||BLOCS_SIMPLES.includes(id))));
   return `<div class="stack">
   <div class="bar" style="margin:0;justify-content:center">${selMois()}</div>
   ${alertesDecouvert()}
@@ -1184,7 +1185,7 @@ function vueReste(){
   ${courant?carteAConfirmer():""}
   ${soldePrompt}
   ${visibles.map(id=>B[id]||"").join("\n")}
-  <button class="btn ghost sm" style="align-self:center" data-act="accueil-perso">⚙️ Personnaliser l'accueil</button>
+  <div class="bar" style="margin:0;justify-content:center;gap:6px">${simple?`<button class="btn ghost sm" data-act="mode-complet">➕ Plus d'informations</button>`:`<button class="btn ghost sm" data-act="mode-simple">➖ Accueil simple</button>`}<button class="btn ghost sm" data-act="accueil-perso">⚙️ Personnaliser</button></div>
   </div>`;
 }
 
@@ -1195,6 +1196,9 @@ const BLOCS_ACCUEIL=[["reel","💰 Reste à vivre réel, prévu et prochain reve
   ["credits","💳 Crédits en cours"],["budgets","🎯 Budgets par catégorie"],["vivre","🛒 Budget pour vivre ce mois"],["venir","⏳ Prélèvements et revenus à venir"],["semaine","📅 Cette semaine"],
   ["calcul","🧮 Le calcul du mois"],["categories","📊 Où part l'argent"],["qui","👫 Qui a dépensé"],["derniers","🕐 Derniers mouvements"]];
 const CACHES_DEFAUT=[];
+const BLOCS_SIMPLES=["reel","raccourcis","comptes","venir","derniers"];
+function modeSimple(){ return lsGet("modeSimple")!=="0"; } // activé par défaut, propre à chaque téléphone
+function changerModeSimple(on){ lsSet("modeSimple",on?"1":"0"); rendu(); toast(on?"Accueil simple : l'essentiel seulement":"Accueil complet : toutes les informations"); }
 function prefsAccueil(){
   let x={}; try{ x=JSON.parse(lsGet("accueilBlocs")||"{}")||{}; }catch(e){}
   const ids=BLOCS_ACCUEIL.map(b=>b[0]), ordre=(x.ordre||[]).filter(i=>ids.includes(i));
@@ -1206,11 +1210,12 @@ function personnaliserAccueil(){
   let P=prefsAccueil();
   const sauver=()=>{ lsSet("accueilBlocs",JSON.stringify(P)); rendu(); };
   ouvrirModal(`<h2>🏠 Personnaliser l'accueil</h2><p class="note" style="margin-top:-6px">Cochez ce que vous voulez voir et rangez-le avec les flèches. Ce choix ne concerne que ce téléphone.</p>
+    ${modeSimple()?`<p class="hint" style="margin-top:-4px">Accueil simple activé : seules les informations essentielles sont proposées. <a href="#" id="pa-complet">Passer à l'accueil complet</a></p>`:""}
     <div id="pa-liste"></div>
     <p class="hint">Les alertes importantes (découvert, prélèvements à confirmer) restent toujours affichées.</p>
     <div class="actions"><button type="button" class="btn left" id="pa-reset">Par défaut</button><button type="button" class="btn pri" id="pa-ok">Terminé</button></div>`, m=>{
       const liste=m.querySelector("#pa-liste");
-      const dessiner=()=>{ liste.innerHTML=P.ordre.map((id,k)=>{ const b=BLOCS_ACCUEIL.find(z=>z[0]===id), on=!P.caches.includes(id);
+      const dessiner=()=>{ const simple=modeSimple(); liste.innerHTML=P.ordre.map((id,k)=>{ if(simple&&!BLOCS_SIMPLES.includes(id)) return ""; const b=BLOCS_ACCUEIL.find(z=>z[0]===id), on=!P.caches.includes(id);
         return `<div class="mline" style="cursor:default;${on?"":"opacity:.55"}"><label style="display:flex;gap:10px;align-items:center;flex:1;min-width:0;cursor:pointer"><input type="checkbox" data-bloc="${id}" ${on?"checked":""} style="width:20px;height:20px;flex:none"><span>${h(b[1])}</span></label>
           <button type="button" class="icon" data-haut="${k}" ${k?"":"disabled"} aria-label="Monter">↑</button><button type="button" class="icon" data-bas="${k}" ${k<P.ordre.length-1?"":"disabled"} aria-label="Descendre">↓</button></div>`; }).join("");
         liste.querySelectorAll("[data-bloc]").forEach(c=>c.onchange=()=>{ const id=c.dataset.bloc; P.caches=c.checked?P.caches.filter(z=>z!==id):[...P.caches,id]; sauver(); dessiner(); });
@@ -1220,6 +1225,7 @@ function personnaliserAccueil(){
       dessiner();
       m.querySelector("#pa-reset").onclick=()=>{ lsSet("accueilBlocs",""); P=prefsAccueil(); rendu(); dessiner(); };
       m.querySelector("#pa-ok").onclick=fermerModal;
+      const pc=m.querySelector("#pa-complet"); if(pc) pc.onclick=e=>{ e.preventDefault(); changerModeSimple(false); pc.parentNode.remove(); dessiner(); };
   });
 }
 
@@ -1874,6 +1880,7 @@ function vueReglages(){
       <p class="hint" style="margin:4px 0 0">Changer un prénom le change partout (opérations, comptes). Synchronisez ensuite l'autre téléphone.</p></div>
     <div class="card"><h3>🔎 Affichage</h3>
       <div class="fld"><label for="taille-texte">Taille du texte</label><select id="taille-texte">${options(TAILLES_TEXTE,lsGet("tailleTexte")||"1")}</select><span class="hint">Choix propre à ce téléphone.</span></div>
+      <label style="display:flex;gap:10px;align-items:center;margin:6px 0 4px;cursor:pointer"><input type="checkbox" id="mode-simple" ${modeSimple()?"checked":""} style="width:20px;height:20px;flex:none"><span><b>Accueil simple</b><br><span class="hint">Seulement le reste à vivre, les raccourcis, vos comptes, ce qui arrive et les derniers mouvements. Décochez pour tout voir. Choix propre à ce téléphone.</span></span></label>
       <div class="actions" style="justify-content:flex-start"><button class="btn sm" data-act="accueil-perso">🏠 Personnaliser l'accueil</button></div></div>
     <div class="card"><h3>💱 Devises</h3>
       <div class="fld"><label>Afficher les totaux en</label><select id="devise-principale">${options(DEVISES_OPT,dp())}</select><span class="hint">Choix propre à ce téléphone. Chaque compte garde sa propre devise ; les budgets restent en €.</span></div>
@@ -2488,6 +2495,8 @@ function action(a){
   else if(a==="ticket"){ formRapide("depense"); document.querySelector("#q-photo input[type=file]")?.click(); }
   else if(a==="voix") saisieVocale();
   else if(a==="accueil-perso") personnaliserAccueil();
+  else if(a==="mode-complet") changerModeSimple(false);
+  else if(a==="mode-simple") changerModeSimple(true);
   else if(a==="tout-effacer") toutEffacer();
   else if(a==="prenoms"){ const v=[0,1].map(i=>(document.getElementById("pr-"+i)?.value||"").trim().replace(/\s+/g," ")), ps=personnes();
     if(!v[0]){ alert("Le premier prénom est obligatoire."); return; }
@@ -2567,6 +2576,7 @@ document.addEventListener("change",e=>{
   const t=e.target;
   if(t.id==="moi"){ lsSet("moi",t.value); toast("Bonjour "+t.value+" !"); }
   else if(t.id==="taille-texte"){ lsSet("tailleTexte",t.value); appliquerTaille(); }
+  else if(t.id==="mode-simple") changerModeSimple(t.checked);
   else if(t.dataset.filtre && t.dataset.filtre!=="q"){ filtres[t.dataset.filtre]=t.value; rendu(); }
   else if(t.dataset.budget!==undefined){ const k=t.dataset.budget, v=t.value.trim()===""?"":r2(num(t.value)), m=mois;
     modifier(d=>{ if(!d.budgets[m]) d.budgets[m]={...budgetDu(m).b}; d.budgets[m][k]=v; }); }
