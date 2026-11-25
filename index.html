@@ -223,16 +223,55 @@ function r2(v){ return Math.round((+v||0)*100)/100; }
 function h(s){ return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 function num(s){ if(typeof s==="number") return s; s=String(s||"").replace(/\s/g,"").replace(",","."); const v=parseFloat(s); return isNaN(v)?0:v; }
 
+// Catégories par défaut, dans l'ordre d'affichage. Ajouter ici = ajouté aussi sur les téléphones déjà installés.
+const CATS_DEFAUT=[
+  // Charges fixes
+  ["logement","Logement","fixe","🏠"], ["electricite","Électricité","fixe","⚡"], ["eau","Eau","fixe","💧"],
+  ["chauffage","Gaz & chauffage","fixe","🔥"], ["internet","Internet & téléphone","fixe","🌐"], ["audiovisuel","Audiovisuel & streaming","fixe","📺"],
+  ["assurances","Assurances","fixe","🛡️"], ["abonnements","Autres abonnements","fixe","📱"], ["credit","Crédit","fixe","🏦"],
+  ["impots","Impôts & taxes","fixe","🧾"],
+  // Dépenses du quotidien
+  ["alimentation","Courses","variable","🛒"], ["restaurants","Restaurants","variable","🍽️"], ["carburant","Carburant","variable","⛽"],
+  ["transport","Transport & voiture","variable","🚗"], ["sante","Santé","variable","💊"], ["enfants","Enfants","variable","🧸"],
+  ["vetements","Vêtements","variable","👕"], ["maison","Maison & bricolage","variable","🛠️"], ["loisirs","Loisirs","variable","🎉"],
+  ["sport","Sport","variable","🏋️"], ["voyages","Voyages & vacances","variable","✈️"], ["cadeaux","Cadeaux","variable","🎁"],
+  ["beaute","Beauté & coiffure","variable","💇"], ["animaux","Animaux","variable","🐾"], ["autres","Autres","variable","📦"],
+  // Revenus
+  ["salaire","Salaire","revenu","💼"], ["pension","Pension","revenu","🎖️"], ["prestations","Prestations familiales","revenu","👪"],
+  ["chomage","Chômage","revenu","📄"], ["remboursements","Remboursements","revenu","↩️"], ["autres_rev","Autres revenus","revenu","💶"]
+];
+function catDefaut([id,nom,type,icone]){ return {id,nom,type,icone,maj:1}; }
+// Ajoute les catégories par défaut manquantes (sauf si supprimées exprès) et range tout dans l'ordre ci-dessus.
+// Pas de date de modification : c'est identique sur les deux téléphones, donc pas de conflit.
+function completerCategories(){
+  const parId=new Map(D.categories.map(c=>[c.id,c])), rang=new Map(CATS_DEFAUT.map((c,i)=>[c[0],i]));
+  for(const c of CATS_DEFAUT){
+    const x=parId.get(c[0]);
+    if(!x){ if(!D.supprimes[c[0]]) D.categories.push(catDefaut(c)); }
+    else if(x.maj===1 && (x.nom!==c[1]||x.icone!==c[3])){ x.nom=c[1]; x.icone=c[3]; } // jamais modifiée à la main : prend le nouveau nom
+  }
+  D.categories.sort((a,b)=>(rang.get(a.id)??999)-(rang.get(b.id)??999));
+}
+// Une seule fois par téléphone : range dans les nouvelles catégories ce qui était dans Logement / Abonnements.
+function reclasserAnciennesCategories(){
+  if(D.local.reclasse1 || !D.recurrentes.length) return;
+  const regles=[[/eau/i,"logement","eau"],[/spotify|netflix|disney|canal|deezer|prime video/i,"abonnements","audiovisuel"],
+                [/box internet|internet|t[ée]l[ée]phone|mobile|forfait/i,"abonnements","internet"],
+                [/[ée]lectricit|edf|engie/i,"logement","electricite"]];
+  const a_changer=D.recurrentes.filter(r=>regles.some(([re,de])=>r.categorieId===de&&re.test(r.libelle)));
+  D.local.reclasse1=true;
+  if(!a_changer.length){ enregistrer(); return; }
+  modifier(d=>{
+    for(const r of d.recurrentes){ const g=regles.find(([re,de])=>r.categorieId===de&&re.test(r.libelle)); if(g) r.categorieId=g[2]; }
+    // Budget de départ repris de l'Excel : on répartit aussi les montants prévus, s'ils n'ont pas été modifiés.
+    const b=d.budgets["2026-11"];
+    if(b && b.logement===1650 && b.abonnements===116.1 && b.eau==null && b.internet==null){
+      Object.assign(b,{logement:1590,eau:60,abonnements:23,internet:71.97,audiovisuel:21.13});
+    }
+  });
+}
 function donneesInitiales(){
-  const cat=(id,nom,type,icone)=>({id,nom,type,icone});
-  const categories=[
-    cat("logement","Logement","fixe","🏠"), cat("assurances","Assurances","fixe","🛡️"), cat("abonnements","Abonnements","fixe","📱"),
-    cat("credit","Crédit","fixe","🏦"),
-    cat("alimentation","Alimentation","variable","🛒"), cat("transport","Transport","variable","🚗"), cat("loisirs","Loisirs","variable","🎉"),
-    cat("sante","Santé","variable","💊"), cat("enfants","Enfants","variable","🧸"), cat("autres","Autres","variable","📦"),
-    cat("salaire","Salaire","revenu","💼"), cat("pension","Pension","revenu","🎖️"), cat("prestations","Prestations familiales","revenu","👪"),
-    cat("chomage","Chômage","revenu","📄"), cat("autres_rev","Autres revenus","revenu","💶")
-  ];
+  const categories=CATS_DEFAUT.map(catDefaut);
   const comptes=[
     {id:"commun",nom:"Compte commun",proprietaire:"Commun",soldeInitial:0},
     {id:"perso1",nom:"Compte de Personne 1",proprietaire:"Personne 1",soldeInitial:0},
@@ -245,7 +284,7 @@ function donneesInitiales(){
     {id:"autres_res",nom:"Autres réserves",objectif:0,soldeInitial:0}
   ];
   // Données par défaut, identiques sur tous les appareils (maj:1 = "plus ancien que tout").
-  for(const arr of [categories,comptes,reserves]) arr.forEach(r=>r.maj=1);
+  for(const arr of [comptes,reserves]) arr.forEach(r=>r.maj=1);
   return {
     format:2,
     reglages:{personnes:["Personne 1","Personne 2"], tauxCHF:1.08}, reglagesMaj:1,
@@ -265,7 +304,8 @@ function charger(){
   let s=null; try{ s=localStorage.getItem(CLE); }catch(e){}
   D = s ? JSON.parse(s) : donneesInitiales();
   normaliser(D); D.local ||= {dernierEnvoi:0, modifs:0};
-  if(!s) enregistrer();
+  completerCategories();
+  enregistrer();
 }
 function enregistrer(){
   try{ localStorage.setItem(CLE, JSON.stringify(D)); }
@@ -318,13 +358,25 @@ function fusionner(x){
   }
   if((x.reglagesMaj||0)>(D.reglagesMaj||0)){ D.reglages=x.reglages; D.reglagesMaj=x.reglagesMaj; n++; }
   D.local.accueil=false;
+  completerCategories();
   enregistrer(); return n;
 }
-function fichierExport(){ const {local,...donnees}=D; return {app:"comptes-du-foyer",format:2,de:moi(),le:new Date().toISOString(),donnees}; }
-async function envoyer(){
+// Le fichier est préparé dès l'ouverture de la fenêtre « Synchroniser » : sur iPhone, le partage
+// doit démarrer immédiatement au toucher du bouton, sans attente.
+// Photos jointes : celles prises sur ce téléphone depuis le dernier envoi (ou toutes, si demandé).
+let PREP=null;
+async function preparerEnvoi(toutesLesPhotos){
+  PREP=null;
+  const photos=(await photoToutes().catch(()=>[])).filter(p=>toutesLesPhotos||(p.local&&p.cree>(D.local.dernierEnvoi||0))).map(({id,data,cree})=>({id,data,cree}));
+  const {local,...donnees}=D;
+  const contenu=JSON.stringify({app:"comptes-du-foyer",format:2,de:moi(),le:new Date().toISOString(),donnees,photos});
   const nom=`comptes_${aujourdhui()}_${moi().replace(/[^\w-]/g,"")}.txt`; // .txt : accepté partout (WhatsApp, SMS, mail…)
-  const contenu=JSON.stringify(fichierExport());
-  const f=new File([contenu],nom,{type:"text/plain"});
+  PREP={f:new File([contenu],nom,{type:"text/plain"}),contenu,nom,nbPhotos:photos.length,taille:contenu.length};
+  return PREP;
+}
+async function envoyer(){
+  if(!PREP) return;
+  const {f,contenu,nom}=PREP;
   let ok=false;
   if(navigator.canShare && navigator.canShare({files:[f]})){
     try{ await navigator.share({files:[f], title:"Comptes du foyer"}); ok=true; }
@@ -335,12 +387,17 @@ async function envoyer(){
 }
 function recevoirFichier(fichier){
   const fr=new FileReader();
-  fr.onload=()=>{
+  fr.onload=async()=>{
     let x; try{ x=JSON.parse(fr.result); }catch(e){ alert("Ce fichier n'est pas un fichier « Comptes du foyer »."); return; }
     const donnees = x.app==="comptes-du-foyer" ? x.donnees : (x.operations&&x.categories ? x : null);
     if(!donnees){ alert("Ce fichier n'est pas un fichier « Comptes du foyer »."); return; }
-    const n=fusionner(donnees); fermerModal(); rendu();
-    toast(n ? `Synchronisé : ${n} nouveauté(s) reçue(s)${x.de?" de "+x.de:""}` : "Déjà à jour, rien de nouveau");
+    const n=fusionner(donnees); fermerModal(); rendu(); reclasserAnciennesCategories();
+    let np=0;
+    for(const p of (Array.isArray(x.photos)?x.photos:[])){
+      try{ if(p?.id && typeof p.data==="string" && p.data.startsWith("data:image/") && !(await photoGet(p.id))){ await photoPut({id:p.id,data:p.data,cree:p.cree||Date.now(),local:false}); np++; } }catch(e){}
+    }
+    const txt=[n?`${n} nouveauté(s)`:"", np?`${np} photo(s) de ticket`:""].filter(Boolean).join(" et ");
+    toast(txt ? `Synchronisé : ${txt} reçue(s)${x.de?" de "+x.de:""}` : "Déjà à jour, rien de nouveau");
   };
   fr.readAsText(fichier);
 }
@@ -446,14 +503,22 @@ function vueSync(){
   const der=D.local.dernierEnvoi?new Date(D.local.dernierEnvoi).toLocaleString("fr-FR",{weekday:"long",day:"numeric",month:"long",hour:"2-digit",minute:"2-digit"}):"jamais";
   ouvrirModal(`<h2>Synchroniser avec l'autre téléphone</h2>
     <p class="note" style="margin-top:0">Dernier envoi depuis cet appareil : <b>${h(der)}</b>${D.local.modifs?` · <b class="neg">${D.local.modifs} modification(s) pas encore envoyée(s)</b>`:" · tout a été envoyé"}.</p>
-    <button class="btn pri choice" data-act="envoyer"><b>📤 Envoyer mes comptes</b><span>Choisissez WhatsApp, Messages, mail… et envoyez le fichier à l'autre personne.</span></button>
+    <button class="btn pri choice" data-act="envoyer" id="s-env" disabled><b>📤 Envoyer mes comptes</b><span id="s-env-info">Préparation…</span></button>
+    <label class="note" style="display:flex;gap:8px;align-items:center;margin:-2px 0 12px"><input type="checkbox" id="s-toutes"> Joindre toutes les photos de tickets (sauvegarde complète, fichier plus lourd)</label>
     <label class="btn choice"><b>📥 Recevoir un fichier</b><span>Ouvrez le fichier envoyé par l'autre téléphone. Il est fusionné avec vos comptes, sans doublon.</span><input type="file" accept=".txt,.json,text/plain,application/json" data-recevoir hidden></label>
     <details class="note"><summary>Comment ça marche ?</summary><ol class="steps" style="margin-top:8px">
       <li>Le soir (ou quand vous voulez), l'un envoie, l'autre reçoit.</li>
       <li>Puis dans l'autre sens, pour que les deux téléphones aient tout.</li>
       <li>Sur iPhone : touchez le fichier reçu → Partager → « Enregistrer dans Fichiers », puis « Recevoir un fichier » ici.<br>Sur Android : téléchargez le fichier reçu, puis « Recevoir un fichier » ici.</li>
       <li>Chaque fichier envoyé est aussi une sauvegarde complète de vos comptes.</li></ol></details>
-    <div class="actions"><button type="button" class="btn" onclick="fermerModal()">Fermer</button></div>`);
+    <div class="actions"><button type="button" class="btn" onclick="fermerModal()">Fermer</button></div>`, m=>{
+      const btn=m.querySelector("#s-env"), info=m.querySelector("#s-env-info"), cb=m.querySelector("#s-toutes");
+      const prep=async()=>{ btn.disabled=true; info.textContent="Préparation…";
+        const p=await preparerEnvoi(cb.checked);
+        info.textContent=`Choisissez WhatsApp, Messages, mail… et envoyez le fichier à l'autre personne.${p.nbPhotos?` Avec ${p.nbPhotos} photo(s) de ticket`:""} (${Math.max(1,Math.round(p.taille/1024))} Ko).`;
+        btn.disabled=false; };
+      cb.onchange=prep; prep();
+    });
 }
 function selMois(){ return `<div class="month"><button class="icon" data-act="mois-" aria-label="Mois précédent">‹</button><b>${h(nomMois(mois))}</b><button class="icon" data-act="mois+" aria-label="Mois suivant">›</button></div>`; }
 function cls(v){ return v<0?"neg":v>0?"pos":""; }
@@ -544,7 +609,7 @@ function vueOps(){
     const tj=parJour[d].reduce((a,o)=>a+signeOp(o)*o.montant,0);
     return `<div class="day"><span>${h(jl)}</span><span class="num">${eur(tj)}</span></div>`+parJour[d].map(o=>{
       const sg=signeOp(o);
-      return `<div class="op" data-edit="${o.id}"><div class="dot">${iconeOp(o)}</div><div class="mid"><div class="t">${h(libelleOp(o))}</div><div class="s">${o.personne?`<span class="tag ${persClasse(o.personne)}">${h(o.personne)}</span> `:""}${h(detailOp(o))}</div></div>
+      return `<div class="op" data-edit="${o.id}"><div class="dot">${iconeOp(o)}</div><div class="mid"><div class="t">${h(libelleOp(o))}${o.photoId?" 📷":""}</div><div class="s">${o.personne?`<span class="tag ${persClasse(o.personne)}">${h(o.personne)}</span> `:""}${h(detailOp(o))}</div></div>
       <div class="m num ${sg>0?"pos":""}">${sg>0?"+":sg<0?"−":""}${eur(o.montant)}${o.devise==="CHF"?`<small>${chf(o.montantOrigine)}</small>`:""}</div>
       <input type="checkbox" title="Pointé (vu sur le relevé)" data-pointe="${o.id}" ${o.pointe?"checked":""}></div>`; }).join("");
   }).join("");
@@ -708,7 +773,7 @@ function vueReste(){
   <div class="card"><h3>📊 Où part l'argent</h3>${cats}</div>
   <div class="card"><h3>👫 Qui a dépensé</h3><div class="legend" style="margin:0">${qui}</div></div>
   <div class="card"><div class="bar" style="margin-bottom:6px"><h3 style="margin:0">🕐 Derniers mouvements</h3><div class="grow"></div><button class="btn sm ghost" data-tab="ops">Tout voir ›</button></div>
-    ${dernieres.length?dernieres.map(o=>`<div class="mline" data-edit="${o.id}"><span style="font-size:20px">${iconeOp(o)}</span><div class="mid"><div class="t">${h(libelleOp(o))}</div><div class="s">${new Date(o.date+"T12:00").toLocaleDateString("fr-FR",{weekday:"short",day:"numeric",month:"short"})} · ${h(o.personne||"")}</div></div><b class="num ${o.type==="revenu"?"pos":""}">${o.type==="revenu"?"+":"−"}${eur(o.montant)}</b></div>`).join(""):`<div class="empty" style="padding:14px">Touchez <b>+</b> pour noter une dépense ou une rentrée d'argent.</div>`}
+    ${dernieres.length?dernieres.map(o=>`<div class="mline" data-edit="${o.id}"><span style="font-size:20px">${iconeOp(o)}</span><div class="mid"><div class="t">${h(libelleOp(o))}${o.photoId?" 📷":""}</div><div class="s">${new Date(o.date+"T12:00").toLocaleDateString("fr-FR",{weekday:"short",day:"numeric",month:"short"})} · ${h(o.personne||"")}</div></div><b class="num ${o.type==="revenu"?"pos":""}">${o.type==="revenu"?"+":"−"}${eur(o.montant)}</b></div>`).join(""):`<div class="empty" style="padding:14px">Touchez <b>+</b> pour noter une dépense ou une rentrée d'argent.</div>`}
   </div></div>`;
 }
 
@@ -826,6 +891,108 @@ document.addEventListener("input",e=>{
   const el=document.querySelector(`[data-conv="${autre}"]`); if(el) el.value=CONV[autre];
 });
 
+/* ---------- Photos des tickets ----------
+   Rangées dans IndexedDB (stockage du téléphone, bien plus grand que celui des comptes). */
+let _db=null;
+function idb(){ return _db ||= new Promise((ok,ko)=>{ const r=indexedDB.open("cdf_photos",1); r.onupgradeneeded=()=>r.result.createObjectStore("photos",{keyPath:"id"}); r.onsuccess=()=>ok(r.result); r.onerror=()=>{ _db=null; ko(r.error); }; }); }
+async function idbReq(mode,fn){ const db=await idb(); return new Promise((ok,ko)=>{ const tx=db.transaction("photos",mode); const r=fn(tx.objectStore("photos")); tx.oncomplete=()=>ok(r?.result); tx.onerror=()=>ko(tx.error); }); }
+const photoPut=p=>idbReq("readwrite",s=>s.put(p));
+const photoGet=id=>idbReq("readonly",s=>s.get(id));
+const photoDel=id=>id?idbReq("readwrite",s=>s.delete(id)).catch(()=>{}):Promise.resolve();
+const photoToutes=()=>idbReq("readonly",s=>s.getAll());
+
+// Prépare la photo : une version nette pour la lecture, une version légère (~150 Ko) à garder.
+function preparerPhoto(file){
+  return new Promise((ok,ko)=>{
+    const url=URL.createObjectURL(file), img=new Image();
+    img.onload=()=>{
+      const dessiner=max=>{ const s=Math.min(1,max/Math.max(img.width,img.height)), c=document.createElement("canvas"); c.width=Math.round(img.width*s); c.height=Math.round(img.height*s); c.getContext("2d").drawImage(img,0,0,c.width,c.height); return c; };
+      const lecture=dessiner(2000), garde=dessiner(1200).toDataURL("image/jpeg",0.6);
+      URL.revokeObjectURL(url); ok({lecture,data:garde});
+    };
+    img.onerror=()=>{ URL.revokeObjectURL(url); ko(new Error("image illisible")); };
+    img.src=url;
+  });
+}
+function voirPhoto(data){
+  const ov=document.createElement("div"); ov.className="ov"; ov.style.cssText="z-index:70;align-items:center;padding:12px;background:rgba(0,0,0,.85)";
+  ov.innerHTML=`<img src="${data}" alt="Ticket" style="max-width:100%;max-height:92vh;border-radius:8px;box-shadow:0 10px 40px rgba(0,0,0,.5)">`;
+  ov.onclick=()=>ov.remove(); document.body.appendChild(ov);
+}
+
+/* ---------- Lecture du ticket (dans le téléphone, rien n'est envoyé) ----------
+   Tesseract.js (logiciel libre de reconnaissance de texte) est téléchargé la première fois,
+   puis gardé dans le téléphone pour marcher sans réseau. */
+let _tess=null, _worker=null;
+function chargerTesseract(){
+  return _tess ||= new Promise((ok,ko)=>{
+    if(window.Tesseract) return ok(window.Tesseract);
+    const s=document.createElement("script"); s.src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js";
+    s.onload=()=>ok(window.Tesseract); s.onerror=()=>{ _tess=null; s.remove(); ko(new Error("hors ligne")); };
+    document.head.appendChild(s);
+  });
+}
+async function lireTicket(canvas){
+  const T=await chargerTesseract();
+  try{ _worker ||= T.createWorker("fra"); const w=await _worker; const {data}=await w.recognize(canvas); return analyserTicket(data.text||""); }
+  catch(e){ _worker=null; throw e; }
+}
+// Trouve le montant à payer dans le texte du ticket.
+function analyserTicket(txt){
+  const lignes=txt.split(/\r?\n/).map(l=>l.replace(/\s+/g," ").trim()).filter(Boolean);
+  const montants=l=>[...l.matchAll(/(\d{1,5})\s?[.,]\s?(\d{2})(?!\d)/g)].map(m=>+(m[1]+"."+m[2])).filter(v=>v>0&&v<10000);
+  const exclu=/sous[- ]?total|t\.?v\.?a|\bh\.?t\b|rendu|monnaie|remise|[ée]conomi|points?\b|fid[ée]lit|cagnotte|avantage/i;
+  const motsCles=[/net\s*[àa]\s*payer/i,/total\s*t\.?t\.?c/i,/[àa]\s*payer/i,/montant\s*(d[ûu]|total|ttc|cb|carte|r[ée]gl)/i,/\btota[l1]\b/i,/\b(cb|carte|visa|master ?card|esp[èe]ces|twint|maestro|paiement)\b/i];
+  let montant=null;
+  for(const re of motsCles){
+    const trouves=[];
+    lignes.forEach((l,i)=>{ if(re.test(l)&&!exclu.test(l)){ let v=montants(l); if(!v.length&&lignes[i+1]) v=montants(lignes[i+1]); trouves.push(...v); } });
+    if(trouves.length){ montant=Math.max(...trouves); break; }
+  }
+  if(montant==null){ const tous=lignes.filter(l=>!exclu.test(l)).flatMap(montants); if(tous.length) montant=Math.max(...tous); }
+  const devise=/\bCHF\b|\bS?Fr\.|\bFRS?\b/i.test(txt)?"CHF":/€|\bEUR\b/i.test(txt)?"EUR":null;
+  let date=null; const dm=txt.match(/\b(\d{2})[\/.-](\d{2})[\/.-](\d{2}|\d{4})\b/);
+  if(dm){ const y=dm[3].length===2?"20"+dm[3]:dm[3], d=`${y}-${dm[2]}-${dm[1]}`, t=new Date(d+"T12:00"); if(!isNaN(t) && t<=new Date() && (Date.now()-t)/864e5<62) date=d; }
+  const magasin=(lignes.slice(0,4).find(l=>/^[A-Za-zÀ-ÿ'&.\- ]{3,28}$/.test(l)&&/[A-Za-zÀ-ÿ]{3}/.test(l))||"").trim();
+  return {montant,devise,date,magasin:magasin?magasin.charAt(0).toUpperCase()+magasin.slice(1).toLowerCase():""};
+}
+// Bloc « 📷 Ticket » réutilisé dans les deux formulaires.
+function blocPhoto(conteneur,{photoId,onLu}){
+  const etat={photoId:photoId||"", nouvelle:null, retiree:false};
+  const afficher=async()=>{
+    let img="", info="";
+    if(etat.nouvelle) img=etat.nouvelle;
+    else if(etat.photoId && !etat.retiree){ const p=await photoGet(etat.photoId).catch(()=>null); if(p) img=p.data; else info=`<span class="hint">📷 Photo prise sur l'autre téléphone (pas encore reçue ici)</span>`; }
+    conteneur.innerHTML=`<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      ${img?`<img src="${img}" alt="Ticket" data-voir style="width:58px;height:58px;object-fit:cover;border-radius:10px;border:1px solid var(--line);cursor:zoom-in">`:""}
+      <label class="btn sm">📷 ${img?"Reprendre":"Photo du ticket"}<input type="file" accept="image/*" capture="environment" hidden></label>
+      ${img?`<button type="button" class="btn sm ghost" data-retirer>✕ Retirer</button>`:""}${info}
+      <span class="hint" data-statut style="flex-basis:100%"></span></div>`;
+    const st=conteneur.querySelector("[data-statut]");
+    conteneur.querySelector("[data-voir]")?.addEventListener("click",()=>voirPhoto(img));
+    conteneur.querySelector("[data-retirer]")?.addEventListener("click",()=>{ etat.nouvelle=null; etat.retiree=true; afficher(); });
+    conteneur.querySelector("input[type=file]").onchange=async e=>{
+      const f=e.target.files[0]; if(!f) return;
+      st.textContent="Préparation de la photo…";
+      try{
+        const p=await preparerPhoto(f); etat.nouvelle=p.data; etat.retiree=false; await afficher();
+        const st2=conteneur.querySelector("[data-statut]"); st2.textContent="🔎 Lecture du ticket… (la 1re fois, quelques secondes de plus)";
+        try{ const r=await lireTicket(p.lecture); onLu&&onLu(r);
+          st2.innerHTML = r.montant ? `✓ Montant lu sur le ticket : <b>${fr(r.montant)} ${r.devise==="CHF"?"CHF":"€"}</b>, vérifiez-le` : "Montant non trouvé sur le ticket : tapez-le";
+        }catch(err){ st2.textContent = "Lecture impossible (pas de réseau la 1re fois ?) : la photo est gardée, tapez le montant."; }
+      }catch(err){ st.textContent="Impossible d'utiliser cette photo."; }
+    };
+  };
+  afficher();
+  // À appeler à l'enregistrement : range la photo et renvoie l'identifiant à mettre sur l'opération.
+  etat.finaliser=async()=>{
+    if(etat.nouvelle){ const id=uid(); await photoPut({id,data:etat.nouvelle,cree:Date.now(),local:true}); if(etat.photoId) photoDel(etat.photoId); return id; }
+    if(etat.retiree){ photoDel(etat.photoId); return ""; }
+    return etat.photoId;
+  };
+  return etat;
+}
+
 /* Ajout rapide : montant + une touche sur la catégorie = enregistré. */
 function formRapide(typeInitial){
   let type = typeInitial==="revenu" ? "revenu" : "depense";
@@ -836,17 +1003,33 @@ function formRapide(typeInitial){
     <div class="quick-amt"><input id="q-m" inputmode="decimal" placeholder="0,00" autocomplete="off" aria-label="Montant"><button type="button" id="q-dev" aria-label="Devise">€</button></div>
     <div class="hint" id="q-conv" style="text-align:center;min-height:16px"></div>
     <input id="q-lib" class="field-simple" autocomplete="off" list="libs-r">
+    <div id="q-photo" style="margin-top:10px"></div>
     <datalist id="libs-r"></datalist>
     <div class="hint" style="margin-top:12px">Touchez la catégorie pour enregistrer :</div>
     <div class="cats" id="q-cats"></div>
     <div class="actions"><button type="button" class="btn ghost sm left" id="q-plus">Date, compte, virement… ›</button><button type="button" class="btn" id="q-cancel">Annuler</button></div>`, m=>{
       const inp=m.querySelector("#q-m"), conv=m.querySelector("#q-conv"), dev=m.querySelector("#q-dev");
+      let datePhoto=null;
+      // Photo du ticket : le montant lu remplit la case (à vérifier), ainsi que la devise, le magasin et la date si trouvés.
+      const ph=blocPhoto(m.querySelector("#q-photo"),{onLu:r=>{
+        if(r.montant) inp.value=fr(r.montant);
+        if(r.devise && r.devise!==devise){ devise=r.devise; dev.textContent=devise==="EUR"?"€":"CHF"; }
+        majConv();
+        const lib=m.querySelector("#q-lib"); if(!lib.value && r.magasin) lib.value=r.magasin;
+        datePhoto = r.date && r.date!==aujourdhui() ? r.date : null;
+        if(datePhoto) conv.textContent=(conv.textContent?conv.textContent+" · ":"")+"ticket du "+new Date(datePhoto+"T12:00").toLocaleDateString("fr-FR",{day:"numeric",month:"long"});
+      }});
       const majType=()=>{
         m.querySelectorAll("#q-type button").forEach(b=>b.classList.toggle("on",b.dataset.v===type));
         inp.style.borderColor = type==="revenu" ? "var(--good)" : "var(--accent)";
+        m.querySelector("#q-photo").style.display = type==="revenu" ? "none" : "";
         m.querySelector("#q-lib").placeholder = type==="revenu" ? "Note (facultatif) : salaire novembre, remboursement…" : "Note (facultatif) : Leclerc, boulangerie…";
         m.querySelector("#libs-r").innerHTML = libsPour(type);
-        m.querySelector("#q-cats").innerHTML = catsPour(type).map(c=>`<button type="button" data-qcat="${c.id}"><span>${c.icone||"•"}</span>${h(c.nom)}</button>`).join("");
+        const tuile=c=>`<button type="button" data-qcat="${c.id}"><span>${c.icone||"•"}</span>${h(c.nom)}</button>`;
+        m.querySelector("#q-cats").innerHTML = type==="revenu" ? catsPour(type).map(tuile).join("")
+          : D.categories.filter(c=>c.type==="variable").map(tuile).join("")
+            + `<div class="hint" style="grid-column:1/-1;margin-top:6px">Factures et charges :</div>`
+            + D.categories.filter(c=>c.type==="fixe").map(tuile).join("");
         m.querySelectorAll("[data-qcat]").forEach(b=>b.onclick=()=>enregistrerRapide(b.dataset.qcat));
       };
       m.querySelectorAll("#q-type button").forEach(b=>b.onclick=()=>{ type=b.dataset.v; majType(); inp.focus(); });
@@ -855,9 +1038,10 @@ function formRapide(typeInitial){
       dev.onclick=()=>{ devise=devise==="EUR"?"CHF":"EUR"; dev.textContent=devise==="EUR"?"€":"CHF"; majConv(); inp.focus(); };
       m.querySelector("#q-cancel").onclick=fermerModal;
       m.querySelector("#q-plus").onclick=()=>{ const v=num(inp.value), lib=m.querySelector("#q-lib").value.trim(); fermerModal(); formOperation(null,{type,montant:v||"",montantOrigine:v||"",devise,libelle:lib,categorieId:catsPour(type)[0]?.id||""}); };
-      function enregistrerRapide(catId){
+      async function enregistrerRapide(catId){
         const v=Math.abs(num(inp.value));
         if(!v){ inp.classList.remove("shake"); void inp.offsetWidth; inp.classList.add("shake"); inp.focus(); return; }
+        let photoId=""; try{ photoId=await ph.finaliser(); }catch(e){ alert("La photo n'a pas pu être enregistrée (mémoire du téléphone pleine ?). La dépense est quand même ajoutée."); }
         // Une rentrée va par défaut sur le compte de la personne (salaire…), une dépense sur le compte commun.
         // Rentrée déjà prévue dans « Mon budget » ce mois-ci (ex. salaire) : on remplace le montant prévu par le montant reçu, pour ne pas compter deux fois.
         if(type==="revenu"){
@@ -865,13 +1049,13 @@ function formRapide(typeInitial){
           if(prevue && confirm(`« ${prevue.libelle} » est déjà prévu ce mois-ci dans Mon budget (${eur(prevue.montant)}).\n\nOK : remplacer par le montant reçu (${eur(versEur(v,devise))})\nAnnuler : l'ajouter en plus`)){
             const id=prevue.id, mt=versEur(v,devise), lib=m.querySelector("#q-lib").value.trim();
             fermerModal();
-            modifier(d=>{ const z=d.operations.find(o=>o.id===id); if(!z) return; Object.assign(z,{montant:mt,devise,montantOrigine:devise==="CHF"?r2(v):null,date:aujourdhui(),personne:moi()}); if(lib) z.note=lib; },
+            modifier(d=>{ const z=d.operations.find(o=>o.id===id); if(!z) return; Object.assign(z,{montant:mt,devise,montantOrigine:devise==="CHF"?r2(v):null,date:aujourdhui(),personne:moi()}); if(lib) z.note=lib; if(photoId) z.photoId=photoId; },
               `${prevue.libelle} mis à jour : ${eur(mt)} reçus`);
             return;
           }
         }
         const compteId = type==="revenu" ? (D.comptes.find(c=>c.proprietaire===moi())||D.comptes[0])?.id||"" : D.comptes[0]?.id||"";
-        const x={id:uid(),cree:new Date().toISOString(),type,date:aujourdhui(),libelle:m.querySelector("#q-lib").value.trim(),devise,
+        const x={id:uid(),cree:new Date().toISOString(),type,date:datePhoto||aujourdhui(),libelle:m.querySelector("#q-lib").value.trim(),devise,photoId,
           montant:versEur(v,devise),montantOrigine:devise==="CHF"?r2(v):null,categorieId:catId,compteId,
           compteDestId:"",reserveId:"",personne:moi(),note:"",pointe:false};
         fermerModal(); modifier(d=>d.operations.push(x), `${type==="revenu"?"+ ":""}${eur(x.montant)} ajouté en ${cat(x.categorieId)?.nom||""}`);
@@ -900,6 +1084,7 @@ function formOperation(op,preset){
         <div class="fld" data-types="virement"><label>Vers le compte</label><select name="compteDestId">${options(D.comptes.map(c=>[c.id,c.nom]),o.compteDestId)}</select></div>
         <div class="fld" data-types="epargne,retrait"><label>Réserve</label><select name="reserveId">${options(D.reserves.map(c=>[c.id,c.nom]),o.reserveId)}</select></div></div>
       <div class="fld"><label>Note (facultatif)</label><input name="note" value="${h(o.note)}"></div>
+      <div class="fld" data-types="depense"><label>Ticket de caisse</label><div id="f-photo"></div></div>
       <div class="actions">
         ${nouv?"":`<button type="button" class="btn danger left" id="f-del">Supprimer</button><button type="button" class="btn" id="f-dup">Dupliquer</button>`}
         <button type="button" class="btn" id="f-cancel">Annuler</button>
@@ -919,21 +1104,29 @@ function formOperation(op,preset){
       m.querySelectorAll("#f-type button").forEach(b=>b.onclick=()=>{type=b.dataset.v; majType();});
       f.montant.oninput=majConv; f.devise.onchange=majConv;
       majType(); majConv();
+      const ph=blocPhoto(m.querySelector("#f-photo"),{photoId:o.photoId,onLu:r=>{
+        if(r.montant && (!num(f.montant.value) || confirm(`Remplacer le montant par celui lu sur le ticket (${fr(r.montant)}) ?`))) f.montant.value=fr(r.montant);
+        if(r.devise) f.devise.value=r.devise;
+        if(!f.libelle.value && r.magasin) f.libelle.value=r.magasin;
+        if(r.date && nouv) f.date.value=r.date;
+        majConv();
+      }});
       m.querySelector("#f-cancel").onclick=fermerModal;
       const lire=()=>{ const v=num(f.montant.value), dev=f.devise.value;
         return {type, date:f.date.value, libelle:f.libelle.value.trim(), devise:dev, montant:versEur(Math.abs(v),dev), montantOrigine:dev==="CHF"?r2(Math.abs(v)):undefined,
           categorieId:(type==="depense"||type==="revenu")?f.categorieId.value:"", compteId:f.compteId.value,
           compteDestId:type==="virement"?f.compteDestId.value:"", reserveId:(type==="epargne"||type==="retrait")?f.reserveId.value:"",
           personne:f.personne.value, note:f.note.value.trim()}; };
-      f.onsubmit=e=>{ e.preventDefault(); const x=lire();
+      f.onsubmit=async e=>{ e.preventDefault(); const x=lire();
         if(!x.montant){ f.montant.focus(); return; }
         if(x.type==="virement"&&x.compteId===x.compteDestId){ alert("Choisissez deux comptes différents."); return; }
+        try{ const pid=await ph.finaliser(); if(pid!==(o.photoId||"")) x.photoId=pid; }catch(err){ alert("La photo n'a pas pu être enregistrée (mémoire du téléphone pleine ?)."); }
         fermerModal();
         if(nouv){ const id=uid(), cree=new Date().toISOString(); modifier(d=>{ if(!d.operations.some(z=>z.id===id)) d.operations.push({id,cree,pointe:false,...x}); },"Opération ajoutée"); }
         else modifier(d=>{ const z=d.operations.find(z=>z.id===op.id); if(z) Object.assign(z,x); },"Opération modifiée");
       };
       if(!nouv){
-        m.querySelector("#f-del").onclick=()=>{ if(confirm("Supprimer cette opération ?")){ fermerModal(); modifier(d=>{ d.operations=d.operations.filter(z=>z.id!==op.id); },"Opération supprimée"); } };
+        m.querySelector("#f-del").onclick=()=>{ if(confirm("Supprimer cette opération ?")){ fermerModal(); photoDel(op.photoId); modifier(d=>{ d.operations=d.operations.filter(z=>z.id!==op.id); },"Opération supprimée"); } };
         m.querySelector("#f-dup").onclick=()=>{ const x=lire(); fermerModal(); const id=uid(), cree=new Date().toISOString(); x.date=aujourdhui(); modifier(d=>d.operations.push({id,cree,pointe:false,...x}),"Opération dupliquée à la date du jour"); };
       }
   });
@@ -1068,7 +1261,7 @@ let tq; document.addEventListener("input",e=>{ if(e.target.dataset.filtre==="q")
 document.addEventListener("keydown",e=>{ if(e.key==="Escape") fermerModal(); if(e.key==="Enter"&&e.target.classList?.contains("inl")){ e.target.blur(); } });
 document.getElementById("fab").onclick=()=>formRapide();
 
-try{ charger(); rendu(); }
+try{ charger(); rendu(); reclasserAnciennesCategories(); }
 catch(e){ console.error(e); document.getElementById("main").innerHTML=`<div class="card empty"><h2>Erreur de lecture des données</h2><p>${h(e.message)}</p></div>`; }
 // Fonctionnement hors connexion + demande de conservation durable des données
 if("serviceWorker" in navigator && location.protocol!=="file:") navigator.serviceWorker.register("sw.js").catch(console.error);
