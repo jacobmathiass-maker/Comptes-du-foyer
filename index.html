@@ -1164,19 +1164,58 @@ function formCategorie(c){
     x=>{ if(c) modifier(d=>Object.assign(d.categories.find(z=>z.id===c.id),x),"Catégorie enregistrée"); else { const id=uid(); modifier(d=>d.categories.push({id,...x}),"Catégorie ajoutée"); } },
     c && (()=>{ const n=D.operations.filter(o=>o.categorieId===c.id).length+D.recurrentes.filter(o=>o.categorieId===c.id).length; if(n){ alert(`Cette catégorie est utilisée ${n} fois. Changez d'abord la catégorie de ces opérations.`); return; } if(confirm("Supprimer cette catégorie ?")) modifier(d=>{d.categories=d.categories.filter(z=>z.id!==c.id)},"Catégorie supprimée"); }));
 }
+// Formulaire « Mon budget » : n'affiche que les champs utiles au type choisi.
 function formRecurrente(r,preset){
-  const cats=[...D.categories.map(c=>[c.id,(c.type==="revenu"?"Revenu · ":"Dépense · ")+c.nom])];
-  formSimple(r?"Modifier la récurrente":"Nouvelle récurrente",[
-      {n:"libelle",l:"Libellé",req:1,ph:"Ex : Loyer"},
-      {n:"type",l:"Type",sel:[["depense","Dépense"],["revenu","Revenu"],["epargne","Épargne (vers une réserve)"]]},
-      {n:"montant",l:"Montant",num:1,req:1},{n:"devise",l:"Devise",sel:[["EUR","€ Euro"],["CHF","CHF Franc suisse"]]},
-      {n:"categorieId",l:"Catégorie (dépense / revenu)",sel:cats},{n:"reserveId",l:"Réserve (si épargne)",sel:D.reserves.map(x=>[x.id,x.nom])},
-      {n:"compteId",l:"Compte",sel:D.comptes.map(x=>[x.id,x.nom])},{n:"personne",l:"Qui ?",sel:optPers()},
-      {n:"jour",l:"Jour du mois",num:1},{n:"actif",l:"Active",check:1}],
-    r||{type:preset||"depense",categorieId:(preset==="revenu"?catsDe("revenu")[0]:D.categories.find(c=>c.type==="fixe"))?.id,reserveId:D.reserves[0]?.id,devise:"EUR",jour:1,actif:true,personne:PERS_COMMUN,compteId:D.comptes[0]?.id},
-    x=>{ x.jour=Math.min(31,Math.max(1,Math.round(x.jour||1))); if(x.type==="epargne") x.categorieId=""; else x.reserveId="";
-      if(r) modifier(d=>Object.assign(d.recurrentes.find(z=>z.id===r.id),x),"Récurrente enregistrée"); else { const id=uid(); modifier(d=>d.recurrentes.push({id,...x}),"Récurrente ajoutée"); } },
-    r && (()=>{ if(confirm("Supprimer cette récurrente ? (les opérations déjà créées restent)")) modifier(d=>{d.recurrentes=d.recurrentes.filter(z=>z.id!==r.id)},"Récurrente supprimée"); }));
+  const o=r?{...r}:{type:preset||"depense",libelle:"",montant:"",devise:"EUR",categorieId:"",reserveId:D.reserves[0]?.id||"",jour:1,actif:true,personne:PERS_COMMUN,compteId:D.comptes[0]?.id||""};
+  let type=o.type;
+  const TYPES=[["revenu","💶 Revenu"],["depense","🏠 Charge fixe"],["epargne","🐷 Épargne"]];
+  const titre=t=>(r?"Modifier ":"")+({revenu:r?"le revenu":"Nouveau revenu",depense:r?"la charge fixe":"Nouvelle charge fixe",epargne:r?"l'épargne":"Nouvelle épargne mensuelle"})[t];
+  ouvrirModal(`<h2 id="r-titre"></h2>
+    <div class="seg" id="r-type">${TYPES.map(([v,l])=>`<button type="button" data-v="${v}">${l}</button>`).join("")}</div>
+    <form id="f-rec" autocomplete="off">
+      <div class="fld"><label>Nom</label><input name="libelle" required value="${h(o.libelle)}"></div>
+      <div class="row2"><div class="fld"><label>Montant chaque mois</label><input name="montant" inputmode="decimal" required value="${o.montant!==""?String(o.montant).replace(".",","):""}" placeholder="0,00"></div>
+        <div class="fld"><label>Devise</label><select name="devise">${options([["EUR","€ Euro"],["CHF","CHF Franc suisse"]],o.devise)}</select></div></div>
+      <div class="fld" data-pour="revenu,depense"><label>Catégorie</label><select name="categorieId"></select></div>
+      <div class="fld" data-pour="epargne"><label>Mettre de côté dans</label><select name="reserveId">${options(D.reserves.map(x=>[x.id,x.nom]),o.reserveId)}</select>
+        <span class="hint">Vos réserves se gèrent dans Plus → Comptes & épargne.</span></div>
+      <div class="row2"><div class="fld"><label>Qui ?</label><select name="personne">${options(optPers(),o.personne)}</select></div>
+        <div class="fld"><label id="r-lbl-compte">Compte</label><select name="compteId">${options(D.comptes.map(x=>[x.id,x.nom]),o.compteId)}</select></div></div>
+      <div class="fld"><label>Jour du mois</label><input name="jour" inputmode="numeric" value="${o.jour||1}"></div>
+      <label class="note" style="display:flex;gap:8px;align-items:center;margin-bottom:12px"><input type="checkbox" name="actif" ${o.actif?"checked":""} style="width:auto"> Compter chaque mois (décochez pour mettre en pause)</label>
+      <div class="actions">${r?`<button type="button" class="btn danger left" id="r-del">Supprimer</button>`:""}<button type="button" class="btn" id="r-cancel">Annuler</button><button class="btn pri">Enregistrer</button></div>
+    </form>`, m=>{
+      const f=m.querySelector("#f-rec");
+      const maj=()=>{
+        m.querySelector("#r-titre").textContent=titre(type);
+        m.querySelectorAll("#r-type button").forEach(b=>b.classList.toggle("on",b.dataset.v===type));
+        m.querySelectorAll("[data-pour]").forEach(el=>el.style.display=el.dataset.pour.split(",").includes(type)?"":"none");
+        const cs = type==="revenu" ? D.categories.filter(c=>c.type==="revenu") : [...D.categories.filter(c=>c.type==="fixe"),...D.categories.filter(c=>c.type==="variable")];
+        const cur = cs.some(c=>c.id===f.categorieId.value) ? f.categorieId.value : cs.some(c=>c.id===o.categorieId) ? o.categorieId : cs[0]?.id;
+        f.categorieId.innerHTML=cs.map(c=>`<option value="${c.id}" ${c.id===cur?"selected":""}>${c.icone||""} ${h(c.nom)}</option>`).join("");
+        m.querySelector("#r-lbl-compte").textContent = type==="revenu"?"Arrive sur le compte":type==="epargne"?"Pris sur le compte":"Payé avec le compte";
+        f.libelle.placeholder = type==="revenu"?"Ex : Salaire, pension…":type==="epargne"?"Ex : Épargne vacances":"Ex : Loyer, électricité…";
+      };
+      m.querySelectorAll("#r-type button").forEach(b=>b.onclick=()=>{
+        type=b.dataset.v;
+        // Un revenu arrive en général sur le compte de la personne
+        if(type==="revenu" && !r){ const c=D.comptes.find(c=>c.proprietaire===f.personne.value); if(c) f.compteId.value=c.id; }
+        maj();
+      });
+      maj();
+      m.querySelector("#r-cancel").onclick=fermerModal;
+      f.onsubmit=e=>{ e.preventDefault();
+        const montant=Math.abs(num(f.montant.value)); if(!montant){ f.montant.focus(); return; }
+        if(type==="epargne" && !D.reserves.length){ alert("Créez d'abord une réserve dans Plus → Comptes & épargne."); return; }
+        const x={libelle:f.libelle.value.trim(),type,montant,devise:f.devise.value,
+          categorieId:type==="epargne"?"":f.categorieId.value, reserveId:type==="epargne"?f.reserveId.value:"",
+          compteId:f.compteId.value, personne:f.personne.value, jour:Math.min(31,Math.max(1,Math.round(num(f.jour.value)||1))), actif:f.actif.checked};
+        fermerModal();
+        if(r) modifier(d=>Object.assign(d.recurrentes.find(z=>z.id===r.id),x),"Enregistré");
+        else { const id=uid(); modifier(d=>d.recurrentes.push({id,...x}),"Ajouté à Mon budget"); }
+      };
+      if(r) m.querySelector("#r-del").onclick=()=>{ if(confirm(`Supprimer « ${r.libelle} » de Mon budget ?\n(Les mois passés ne sont pas modifiés.)`)){ fermerModal(); modifier(d=>{d.recurrentes=d.recurrentes.filter(z=>z.id!==r.id)},"Supprimé de Mon budget"); } };
+  });
 }
 
 /* ============================================================
