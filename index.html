@@ -356,9 +356,12 @@ function horodater(av){
   return n;
 }
 function modifier(fn, msg){
+  const avant=new Set(D.comptes.filter(c=>etatDecouvert(c)?.niv==="bad").map(c=>c.id));
   const av=empreinte(); fn(D);
   D.local.modifs=(D.local.modifs||0)+horodater(av);
   enregistrer(); rendu(); if(msg) toast(msg);
+  const dep=D.comptes.filter(c=>!avant.has(c.id)&&etatDecouvert(c)?.niv==="bad");
+  if(dep.length) setTimeout(()=>toast("🚨 "+dep.map(c=>c.nom).join(", ")+" : découvert autorisé dépassé"),msg?2300:0);
 }
 
 /* Fusion d'un fichier reçu : pour chaque élément, la version la plus récente gagne.
@@ -695,7 +698,7 @@ function vueComptes(){
   </div>
   <div class="grid g2">
     <div class="card"><div class="bar" style="margin-bottom:4px"><h3 style="margin:0">Comptes bancaires</h3><div class="grow"></div><button class="btn sm" data-act="compte-new">+ Compte</button></div>
-      ${D.comptes.map(c=>`<div class="acc"><div><div class="n">${h(c.nom)}</div><div class="note"><span class="tag ${persClasse(c.proprietaire)}">${h(c.proprietaire||PERS_COMMUN)}</span> · solde de départ ${eur(c.soldeInitial)}</div></div><div style="display:flex;align-items:center;gap:6px"><b class="num ${cls(soldeCompte(c.id))}">${eur(soldeCompte(c.id))}</b><button class="icon" data-compte="${c.id}" title="Modifier">✎</button></div></div>`).join("")||`<div class="empty">Aucun compte</div>`}
+      ${D.comptes.map(c=>{ const e=etatDecouvert(c); return `<div class="acc"><div><div class="n">${h(c.nom)}</div><div class="note"><span class="tag ${persClasse(c.proprietaire)}">${h(c.proprietaire||PERS_COMMUN)}</span> · solde de départ ${eur(c.soldeInitial)}${num(c.decouvert)>0?` · découvert autorisé ${eur(c.decouvert)}`:""}</div>${e?`<div class="note" style="color:var(--${e.niv});font-weight:600">${e.niv==="bad"?"🚨":"⚠️"} ${e.txt}</div>`:""}</div><div style="display:flex;align-items:center;gap:6px"><b class="num ${cls(soldeCompte(c.id))}">${eur(soldeCompte(c.id))}</b><button class="icon" data-compte="${c.id}" title="Modifier">✎</button></div></div>`; }).join("")||`<div class="empty">Aucun compte</div>`}
       <p class="note">Le solde = solde de départ + toutes les opérations saisies sur ce compte. Mettez comme solde de départ ce que vous voyez sur votre banque le jour où vous commencez.</p>
     </div>
     <div class="card"><div class="bar" style="margin-bottom:4px"><h3 style="margin:0">Réserves / épargne</h3><div class="grow"></div><button class="btn sm" data-act="reserve-new">+ Réserve</button></div>
@@ -781,6 +784,7 @@ function vueReste(){
 
   return `<div class="stack">
   <div class="bar" style="margin:0;justify-content:center">${selMois()}</div>
+  ${alertesDecouvert()}
   <div class="card hero-big ${st}">
     <div class="lbl">${courant?"Il vous reste":mois<moisCourant()?"Il vous restait":"Il vous restera"}</div>
     <div class="val num">${eur(p.reste)}</div>
@@ -1174,10 +1178,43 @@ function formSimple(titre, champs, valeurs, onSave, onDel){
 }
 const optPers=()=>persOptions().map(p=>[p,p]);
 function formCompte(c){
-  formSimple(c?"Modifier le compte":"Nouveau compte",[{n:"nom",l:"Nom",req:1,ph:"Ex : Compte joint"},{n:"proprietaire",l:"À qui ?",sel:optPers()},{n:"soldeInitial",l:"Solde de départ (€)",num:1,hint:"Le montant sur ce compte avant la première opération saisie."}],
-    c||{proprietaire:PERS_COMMUN,soldeInitial:0},
-    x=>{ if(c) modifier(d=>Object.assign(d.comptes.find(z=>z.id===c.id),x),"Compte enregistré"); else { const id=uid(); modifier(d=>d.comptes.push({id,...x}),"Compte ajouté"); } },
-    c && (()=>{ const n=D.operations.filter(o=>o.compteId===c.id||o.compteDestId===c.id).length; if(n){ alert(`Ce compte est utilisé par ${n} opération(s). Modifiez-les d'abord.`); return; } if(confirm("Supprimer ce compte ?")) modifier(d=>{d.comptes=d.comptes.filter(z=>z.id!==c.id)},"Compte supprimé"); }));
+  const v=c||{proprietaire:PERS_COMMUN,soldeInitial:0,decouvert:0}, si=num(v.soldeInitial), dec=si<0;
+  const mt=x=>x?String(r2(Math.abs(x))).replace(".",","):"";
+  ouvrirModal(`<h2>${c?"Modifier le compte":"Nouveau compte"}</h2><form id="f-c" autocomplete="off">
+    <div class="fld"><label>Nom</label><input name="nom" required value="${h(v.nom||"")}" placeholder="Ex : Compte joint"></div>
+    <div class="fld"><label>À qui ?</label><select name="proprietaire">${options(optPers(),v.proprietaire||PERS_COMMUN)}</select></div>
+    <div class="fld"><label>Solde de départ</label>
+      <div class="seg" id="c-sens"><button type="button" data-v="+" class="${dec?"":"on"}">👍 En positif</button><button type="button" data-v="-" class="${dec?"on":""}">⚠️ À découvert</button></div>
+      <input name="soldeInitial" inputmode="decimal" value="${mt(si)}" placeholder="0,00 €" style="margin-top:8px">
+      <span class="hint" id="c-hint"></span></div>
+    <div class="fld"><label>Découvert autorisé par la banque (€)</label><input name="decouvert" inputmode="decimal" value="${mt(v.decouvert)}" placeholder="Ex : 500 — laisser vide si aucun"><span class="hint">L'appli vous prévient quand le compte passe à découvert, et en rouge si vous dépassez ce montant.</span></div>
+    <div class="actions">${c?`<button type="button" class="btn danger left" id="f-del">Supprimer</button>`:""}<button type="button" class="btn" id="f-cancel">Annuler</button><button class="btn pri">Enregistrer</button></div></form>`, m=>{
+    const f=m.querySelector("#f-c"); let sens=dec?"-":"+";
+    const maj=()=>{ m.querySelectorAll("#c-sens button").forEach(b=>b.classList.toggle("on",b.dataset.v===sens));
+      m.querySelector("#c-hint").textContent= sens==="-" ? "Le montant du découvert au moment où vous commencez (ex : 150 si la banque affiche −150 €)." : "Le montant sur ce compte au moment où vous commencez (ce que la banque affiche)."; };
+    m.querySelectorAll("#c-sens button").forEach(b=>b.onclick=()=>{ sens=b.dataset.v; maj(); }); maj();
+    m.querySelector("#f-cancel").onclick=fermerModal;
+    f.onsubmit=e=>{ e.preventDefault();
+      const x={nom:f.nom.value.trim(), proprietaire:f.proprietaire.value, soldeInitial:r2(Math.abs(num(f.soldeInitial.value))*(sens==="-"?-1:1)), decouvert:r2(Math.abs(num(f.decouvert.value)))};
+      fermerModal();
+      if(c) modifier(d=>Object.assign(d.comptes.find(z=>z.id===c.id),x),"Compte enregistré"); else { const id=uid(); modifier(d=>d.comptes.push({id,...x}),"Compte ajouté"); } };
+    if(c) m.querySelector("#f-del").onclick=()=>{ const n=D.operations.filter(o=>o.compteId===c.id||o.compteDestId===c.id).length; if(n){ alert(`Ce compte est utilisé par ${n} opération(s). Modifiez-les d'abord.`); return; } if(confirm("Supprimer ce compte ?")){ fermerModal(); modifier(d=>{d.comptes=d.comptes.filter(z=>z.id!==c.id)},"Compte supprimé"); } };
+  });
+}
+// Situation de découvert d'un compte : null si tout va bien.
+function etatDecouvert(c){
+  const s=soldeCompte(c.id), lim=num(c.decouvert);
+  if(s>=0) return null;
+  const neg=-s;
+  if(lim>0 && neg>lim+0.004) return {niv:"bad", s, txt:`dépasse le découvert autorisé de ${eur(neg-lim)}`};
+  return {niv:"warn", s, txt: lim>0 ? `à découvert · encore ${eur(lim-neg)} autorisés` : `à découvert`};
+}
+function alertesDecouvert(){
+  const l=D.comptes.map(c=>[c,etatDecouvert(c)]).filter(x=>x[1]);
+  if(!l.length) return "";
+  const pire=l.some(x=>x[1].niv==="bad")?"bad":"warn";
+  return `<div class="card" style="background:var(--${pire}-soft);border-color:var(--${pire})"><h3 style="color:var(--${pire});margin-bottom:6px">${pire==="bad"?"🚨 Découvert dépassé":"⚠️ Compte à découvert"}</h3>
+    ${l.map(([c,e])=>`<div style="display:flex;justify-content:space-between;gap:8px;margin:4px 0" data-compte="${c.id}"><span>${h(c.nom)}<br><span class="note" style="color:var(--${e.niv})">${e.txt}</span></span><b class="num neg">${eur(e.s)}</b></div>`).join("")}</div>`;
 }
 function formReserve(r){
   formSimple(r?"Modifier la réserve":"Nouvelle réserve",[{n:"nom",l:"Nom",req:1,ph:"Ex : Vacances d'été"},{n:"objectif",l:"Objectif (€, facultatif)",num:1},{n:"soldeInitial",l:"Déjà mis de côté (€)",num:1}],
