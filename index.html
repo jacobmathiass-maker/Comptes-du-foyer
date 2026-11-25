@@ -353,9 +353,7 @@ function reclasserAnciennesCategories(){
 }
 function donneesInitiales(){
   const categories=CATS_DEFAUT.map(catDefaut);
-  const comptes=[
-    {id:"commun",nom:"Compte commun",proprietaire:"Commun",soldeInitial:0}
-  ];
+  const comptes=[]; // aucun compte imposé : chacun crée les siens (banque, nom, titulaire, devise)
   const reserves=[
     {id:"urgence",nom:"Fonds d'urgence",objectif:0,soldeInitial:0},
     {id:"vacances",nom:"Vacances",objectif:0,soldeInitial:0},
@@ -620,6 +618,8 @@ function projection(id, jusqua=finMois()){
   return {fin:r2(s), min:r2(min), dateMin:dMin, cause};
 }
 // Les comptes pris en compte dans le reste à vivre (choisis dans Comptes ; les archivés et l'épargne sont exclus par défaut).
+function exigerCompte(){ if(comptesVisibles().length) return true;
+  alert("Créez d'abord votre compte bancaire : l'argent noté doit arriver sur un compte ou en sortir.\n\nIndiquez son nom, sa banque et le solde affiché par la banque."); formCompte(); return false; }
 function comptesActifs(){ return D.comptes.filter(inclusTotal); }
 function situation(){
   const cs=comptesActifs(), ids=new Set(cs.map(c=>c.id)), auj=aujourdhui(), fin=finMois();
@@ -700,12 +700,11 @@ function verifierQui(){
   if(ps.length===1){ if(lsGet("moi")!==ps[0]) lsSet("moi",ps[0]); return; }
   if(!ps.includes(lsGet("moi")) && !document.querySelector("#modal-root .modal")) demanderQui();
 }
-// Premier lancement sans fichier : prénoms du foyer et un compte personnel pour chacun.
+// Premier lancement sans fichier : prénoms du foyer (les comptes sont créés ensuite par l'utilisateur).
 function creerFoyer(p1,p2){
   const noms=[p1,p2].map(x=>(x||"").trim().replace(/\s+/g," ")).filter(Boolean).filter((x,i,a)=>a.indexOf(x)===i&&x!==PERS_COMMUN);
   if(!noms.length) return;
-  modifier(d=>{ d.reglages.personnes=noms;
-    noms.forEach((n,i)=>{ const id="perso"+(i+1); if(!d.comptes.some(c=>c.id===id)) d.comptes.push({id,nom:"Compte de "+n,proprietaire:n,soldeInitial:0}); }); });
+  modifier(d=>{ d.reglages.personnes=noms; });
   D.local.foyerCree=true; enregistrer();
   if(noms.length===1) lsSet("moi",noms[0]);
 }
@@ -1121,13 +1120,13 @@ function vueReste(){
       <div class="gauge-txt" style="margin-top:12px;font-size:14px"><span>Prévu au ${h(finTxt)}</span><b class="num">${fmtP(S.prevu)}</b></div>
       ${S.prochainRevenu?`<div class="gauge-txt" style="font-size:13px"><span>Prochain revenu</span><span>${h(S.prochainRevenu.libelle)} · ${h(dateCourte(S.prochainRevenu.date))}</span></div>`:""}
     </div>`;
-    comptesCarte=`${comptesActifs().length>=1?`<div class="card"><div class="bar" style="margin-bottom:2px"><h3 style="margin:0">🏦 Mes comptes</h3><div class="grow"></div>${new Set(comptesVisibles().map(deviseCompte)).size>1?`<button class="btn sm ghost" data-act="change">💱 Changer</button>`:""}<button class="btn sm" data-act="compte-new">+ Compte</button><button class="btn sm ghost" data-tab="comptes">Gérer ›</button></div>
+    comptesCarte=`${!comptesVisibles().length?`<div class="card" style="border-color:var(--pri,#1f6f5c)"><h3 style="margin:0 0 4px">🏦 Ajoutez vos comptes</h3><p class="note" style="margin:0 0 10px">Créez autant de comptes que vous voulez, dans une ou plusieurs banques : compte courant, compte joint, livret, compte en CHF…</p><button class="btn pri" data-act="compte-new">+ Ajouter mon premier compte</button></div>`:""}${comptesActifs().length>=1?`<div class="card"><div class="bar" style="margin-bottom:2px"><h3 style="margin:0">🏦 Mes comptes</h3><div class="grow"></div>${new Set(comptesVisibles().map(deviseCompte)).size>1?`<button class="btn sm ghost" data-act="change">💱 Changer</button>`:""}<button class="btn sm" data-act="compte-new">+ Compte</button><button class="btn sm ghost" data-tab="comptes">Gérer ›</button></div>
       ${comptesActifs().map(c=>{ const sc=soldeCompte(c.id); return `<div class="mline" data-act="ops-compte:${c.id}">${pastille(c,30)}<div class="mid"><div class="t">${h(c.nom)}</div><div class="s">${c.banque?h(c.banque)+" · ":""}prévu fin du mois : ${fmtCompte(projection(c.id).fin,c)}</div></div><div style="text-align:right"><b class="num ${cls(sc)}">${fmtCompte(sc,c)}</b>${deviseCompte(c)!==dp()?`<div class="s">≈ ${fmtP(convertir(sc,deviseCompte(c),dp()))}</div>`:""}</div></div>`; }).join("")}</div>`:""}`;
     creditsCarte=`${(()=>{ const cs=D.recurrentes.filter(creditActif); if(!cs.length) return "";
       const tot=r2(cs.reduce((a,r)=>a+versEur(r.montant,r.devise),0)), pr=cs.map(r=>[r,etatCredit(r).prochaine]).filter(x=>x[1]).sort((a,b)=>a[1].date.localeCompare(b[1].date))[0];
       return `<div class="card" data-tab="credits" style="cursor:pointer"><div class="bar" style="margin:0"><h3 style="margin:0">💳 Crédits en cours</h3><div class="grow"></div><b class="num">${eur(tot)}/mois</b></div>
         <div class="note">${cs.length} crédit(s)${pr?` · prochain : ${h(pr[0].libelle)} le ${h(dateCourte(pr[1].date))}`:""}</div></div>`; })()}`;
-    soldePrompt=`${S.soldeIndique?"":`<div class="card" style="border-color:var(--warn)"><b>👉 Indiquez le solde de vos comptes</b><p class="note" style="margin:4px 0 8px">Pour que le reste à vivre réel soit juste, recopiez une fois ce qu'affiche votre banque.</p><button class="btn sm" data-tab="comptes">Mes comptes ›</button></div>`}`;
+    soldePrompt=`${S.soldeIndique||!comptesVisibles().length?"":`<div class="card" style="border-color:var(--warn)"><b>👉 Indiquez le solde de vos comptes</b><p class="note" style="margin:4px 0 8px">Pour que le reste à vivre réel soit juste, recopiez une fois ce qu'affiche votre banque.</p><button class="btn sm" data-tab="comptes">Mes comptes ›</button></div>`}`;
     venirCarte=`<div class="card"><div class="bar" style="margin-bottom:4px"><h3 style="margin:0">⏳ À venir d'ici le ${h(finTxt)}</h3><div class="grow"></div><button class="btn sm ghost" data-tab="calendrier">📅 Calendrier ›</button></div>
       ${S.venir.length?S.venir.slice(0,8).map(o=>{ const sg=signeOp(o); return `<div class="mline" ${o.recId&&String(o.id).startsWith("auto_")?`data-echeance="${o.recId}|${o.id.slice(("auto_"+o.recId+"_").length)}"`:`data-edit="${o.id}"`}><span style="font-size:20px">${iconeOp(o)}</span><div class="mid"><div class="t">${h(libelleOp(o))}</div><div class="s">${enAttente(o)?tagStatut("attente")+" ":o.statut==="reportee"?tagStatut("reportee")+" ":""}${h(dateCourte(o.date))} · ${h(compte(o.compteId)?.nom||"")}</div></div><b class="num ${sg>0?"pos":""}">${sg>0?"+":sg<0?"−":""}${fmtOp(o)}</b></div>`; }).join("")+(S.venir.length>8?`<div class="note" style="padding-top:6px">… et ${S.venir.length-8} autre(s)</div>`:"")
         :`<div class="note">Plus rien de prévu ce mois-ci.</div>`}
@@ -1258,6 +1257,7 @@ function analyserDictee(texte){
   return res;
 }
 function saisieVocale(){
+  if(!exigerCompte()) return;
   const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
   const repli=msg=>{ fermerModal(); formRapide("depense"); toastLong(msg||"🎤 Dictée non disponible ici : touchez le micro de votre clavier pour dicter le libellé."); };
   if(!SR) return repli();
@@ -1689,6 +1689,7 @@ function ficheCredit(r){
   });
 }
 function formCredit(r,depuis){
+  if(!r && !exigerCompte()) return;
   const base=r||depuis||null, c=r?.credit||{}, e=r?etatCredit(r):null;
   const v={libelle:base?.libelle||"", montant:base?.montant||"", devise:base?.devise||deviseCompte(compte(base?.compteId||comptesVisibles()[0]?.id)), compteId:base?.compteId||comptesVisibles()[0]?.id||"", personne:base?.personne||PERS_COMMUN,
     prochain: e?.prochaine ? e.prochaine.date : (base?.debut && base.debut>=aujourdhui() ? base.debut : ""), restantes: e?e.restantes:""};
@@ -2086,6 +2087,7 @@ function blocPhoto(conteneur,{photoId,onLu}){
 
 /* Ajout rapide : montant + une touche sur la catégorie = enregistré. */
 function formRapide(typeInitial){
+  if(!exigerCompte()) return;
   let type = typeInitial==="revenu" ? "revenu" : "depense";
   let devise="EUR";
   const catsPour=t=> t==="revenu" ? D.categories.filter(c=>c.type==="revenu") : [...D.categories.filter(c=>c.type==="variable"), ...D.categories.filter(c=>c.type==="fixe")];
@@ -2167,6 +2169,7 @@ function formRapide(typeInitial){
   });
 }
 function formOperation(op,preset){
+  if(!op && !exigerCompte()) return;
   const nouv=!op;
   const o=op?{...op}:{type:"depense",date:aujourdhui(),libelle:"",montant:"",devise:"EUR",categorieId:(D.categories.find(c=>c.type==="variable")||{}).id||"",compteId:comptesVisibles()[0]?.id||"",compteDestId:comptesVisibles()[1]?.id||"",reserveId:D.reserves[0]?.id||"",personne:moi(),note:"",pointe:false,...(preset||{})};
   const montantAffiche=o.devise&&o.devise!=="EUR"?o.montantOrigine:o.montant;
@@ -2395,6 +2398,7 @@ function formCategorie(c){
 }
 // Formulaire « Mon budget » : n'affiche que les champs utiles au type choisi.
 function formRecurrente(r,preset){
+  if(!r && !exigerCompte()) return;
   const o=r?{...r}:{type:preset||"depense",libelle:"",montant:"",devise:"EUR",categorieId:"",reserveId:D.reserves[0]?.id||"",jour:1,actif:true,personne:PERS_COMMUN,compteId:comptesVisibles()[0]?.id||""};
   let type=o.type;
   const TYPES=[["revenu","💶 Revenu"],["depense","🏠 Charge fixe"],["epargne","🐷 Épargne"]];
@@ -2502,7 +2506,7 @@ function action(a){
     if(!v[0]){ alert("Le premier prénom est obligatoire."); return; }
     if(v[0]===v[1]||v.includes(PERS_COMMUN)){ alert("Deux prénoms différents, et pas « "+PERS_COMMUN+" »."); return; }
     if(ps[1]&&!v[1]){ alert("Pour retirer la 2e personne, il faudrait d'abord changer le nom sur ses opérations. Laissez son prénom."); return; }
-    modifier(d=>{ v.forEach((n,i)=>{ if(!n) return; if(d.reglages.personnes[i]==null){ d.reglages.personnes[i]=n; const id="perso"+(i+1); if(!d.comptes.some(c=>c.id===id)) d.comptes.push({id,nom:"Compte de "+n,proprietaire:n,soldeInitial:0}); }
+    modifier(d=>{ v.forEach((n,i)=>{ if(!n) return; if(d.reglages.personnes[i]==null){ d.reglages.personnes[i]=n; }
       else if(d.reglages.personnes[i]!==n) renommerPersonne(d,i,n); }); },"Prénoms enregistrés"); verifierQui(); }
   else if(a.startsWith("recur-new:")) formRecurrente(null,a.split(":")[1]);
   else if(a==="compte-new") formCompte();
