@@ -223,6 +223,27 @@ function r2(v){ return Math.round((+v||0)*100)/100; }
 function h(s){ return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 function num(s){ if(typeof s==="number") return s; s=String(s||"").replace(/\s/g,"").replace(",","."); const v=parseFloat(s); return isNaN(v)?0:v; }
 
+// Les deux personnes du foyer, fixées une fois pour toutes.
+const PRENOMS=["Mathias","Melina"];
+// Si les données portent d'autres prénoms (ex. « Jacob » du fichier de départ, ou « Personne 1 »),
+// on les remplace partout : opérations, Mon budget, comptes, libellés (« Téléphone Jacob » → « Téléphone Mathias »).
+const ANCIENS_NOMS={"Jacob":PRENOMS[0],"Personne 1":PRENOMS[0],"Personne 2":PRENOMS[1]};
+function fixerPrenoms(){
+  const corr={...ANCIENS_NOMS};
+  PRENOMS.forEach((p,i)=>{ const a=D.reglages.personnes[i]; if(a&&a!==p&&a!==PERS_COMMUN) corr[a]=p; });
+  const res=Object.keys(corr).map(a=>[new RegExp("(^|[^\\p{L}])"+a.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+"(?![\\p{L}\\d])","gu"),corr[a]]);
+  const tx=s=>{ let v=s; for(const [re,nv] of res) v=v.replace(re,"$1"+nv); return v; };
+  const besoin = PRENOMS.some((p,i)=>D.reglages.personnes[i]!==p)
+    || [...D.operations,...D.recurrentes].some(o=>corr[o.personne]||(o.libelle&&tx(o.libelle)!==o.libelle))
+    || D.comptes.some(c=>corr[c.proprietaire]||tx(c.nom)!==c.nom);
+  if(!besoin) return;
+  modifier(d=>{
+    d.reglages.personnes=[...PRENOMS];
+    for(const o of [...d.operations,...d.recurrentes]){ if(corr[o.personne]) o.personne=corr[o.personne]; if(o.libelle) o.libelle=tx(o.libelle); }
+    for(const c of d.comptes){ if(corr[c.proprietaire]) c.proprietaire=corr[c.proprietaire]; c.nom=tx(c.nom); }
+  });
+  if(corr[lsGet("moi")]) lsSet("moi",corr[lsGet("moi")]);
+}
 // Catégories par défaut, dans l'ordre d'affichage. Ajouter ici = ajouté aussi sur les téléphones déjà installés.
 const CATS_DEFAUT=[
   // Charges fixes
@@ -274,8 +295,8 @@ function donneesInitiales(){
   const categories=CATS_DEFAUT.map(catDefaut);
   const comptes=[
     {id:"commun",nom:"Compte commun",proprietaire:"Commun",soldeInitial:0},
-    {id:"perso1",nom:"Compte de Personne 1",proprietaire:"Personne 1",soldeInitial:0},
-    {id:"perso2",nom:"Compte de Personne 2",proprietaire:"Personne 2",soldeInitial:0}
+    {id:"perso1",nom:"Compte de "+PRENOMS[0],proprietaire:PRENOMS[0],soldeInitial:0},
+    {id:"perso2",nom:"Compte de "+PRENOMS[1],proprietaire:PRENOMS[1],soldeInitial:0}
   ];
   const reserves=[
     {id:"urgence",nom:"Fonds d'urgence",objectif:0,soldeInitial:0},
@@ -287,7 +308,7 @@ function donneesInitiales(){
   for(const arr of [comptes,reserves]) arr.forEach(r=>r.maj=1);
   return {
     format:2,
-    reglages:{personnes:["Personne 1","Personne 2"], tauxCHF:1.08}, reglagesMaj:1,
+    reglages:{personnes:[...PRENOMS], tauxCHF:1.08}, reglagesMaj:1,
     categories, comptes, reserves, recurrentes:[], operations:[],
     budgets:{}, budgetsMaj:{}, supprimes:{},
     local:{accueil:true, dernierEnvoi:0, modifs:0}
@@ -295,7 +316,7 @@ function donneesInitiales(){
 }
 
 function normaliser(x){
-  x.reglages ||= {personnes:["Personne 1","Personne 2"],tauxCHF:1};
+  x.reglages ||= {personnes:[...PRENOMS],tauxCHF:1};
   for(const k of COLL) x[k] ||= [];
   x.budgets ||= {}; x.budgetsMaj ||= {}; x.supprimes ||= {}; x.reglagesMaj ||= 0;
   return x;
@@ -391,7 +412,7 @@ function recevoirFichier(fichier){
     let x; try{ x=JSON.parse(fr.result); }catch(e){ alert("Ce fichier n'est pas un fichier « Comptes du foyer »."); return; }
     const donnees = x.app==="comptes-du-foyer" ? x.donnees : (x.operations&&x.categories ? x : null);
     if(!donnees){ alert("Ce fichier n'est pas un fichier « Comptes du foyer »."); return; }
-    const n=fusionner(donnees); fermerModal(); rendu(); reclasserAnciennesCategories();
+    const n=fusionner(donnees); fermerModal(); fixerPrenoms(); rendu(); reclasserAnciennesCategories();
     let np=0;
     for(const p of (Array.isArray(x.photos)?x.photos:[])){
       try{ if(p?.id && typeof p.data==="string" && p.data.startsWith("data:image/") && !(await photoGet(p.id))){ await photoPut({id:p.id,data:p.data,cree:p.cree||Date.now(),local:false}); np++; } }catch(e){}
@@ -493,11 +514,18 @@ function vueAccueil(){
         ?"Dans Safari, touchez le bouton Partager (carré avec une flèche) puis « Sur l'écran d'accueil ». Ouvrez ensuite l'application depuis cette icône, et faites tout depuis elle."
         :"Dans Chrome, touchez le menu ⋮ puis « Ajouter à l'écran d'accueil » (ou « Installer l'application »). Ouvrez-la ensuite depuis cette icône."}</div>`}
     </div>
+    ${!PRENOMS.includes(lsGet("moi")) ? `<div class="card"><h3>Qui utilise ce téléphone ?</h3>${choixQui()}</div>` : `
+    <p class="note" style="text-align:center">Ce téléphone est celui de <b>${h(moi())}</b> · <a href="#" data-act="moi:">changer</a></p>
     <label class="btn pri choice"><b>📥 J'ai reçu un fichier</b><span>Le fichier de départ, ou un fichier envoyé par l'autre téléphone. Vous retrouverez tous les comptes.</span><input type="file" accept=".txt,.json,text/plain,application/json" data-recevoir hidden></label>
-    <div class="card"><h3>✨ Commencer de zéro</h3>
-      <form id="f-accueil" autocomplete="off"><div class="row2"><div class="fld"><label>Votre prénom</label><input name="p1" required></div><div class="fld"><label>Prénom de votre conjoint(e)</label><input name="p2" required></div></div>
-      <div class="actions"><button class="btn pri">Commencer</button></div></form></div>
+    <button class="btn choice" data-act="commencer"><b>✨ Commencer sans fichier</b><span>Comptes vides, à remplir vous-même.</span></button>`}
   </div>`;
+}
+function choixQui(){
+  return `<div class="row2">${PRENOMS.map((p,i)=>`<button class="btn" style="padding:18px 8px;font-size:17px;border-color:${i?"var(--p2)":"var(--p1)"};color:${i?"var(--p2)":"var(--p1)"}" data-act="moi:${h(p)}">${i?"👩":"👨"} ${h(p)}</button>`).join("")}</div>
+    <p class="hint" style="margin:8px 0 0">Les dépenses ajoutées sur ce téléphone seront notées à ce nom.</p>`;
+}
+function demanderQui(){
+  ouvrirModal(`<h2>Qui utilise ce téléphone ?</h2>${choixQui()}`);
 }
 function vueSync(){
   const der=D.local.dernierEnvoi?new Date(D.local.dernierEnvoi).toLocaleString("fr-FR",{weekday:"long",day:"numeric",month:"long",hour:"2-digit",minute:"2-digit"}):"jamais";
@@ -809,8 +837,7 @@ function vueReglages(){
   return `
   <div class="grid g2">
     <div class="card"><h3>Le foyer</h3>
-      <div class="fld"><label>Sur ce téléphone, je suis</label><select id="moi">${persOptions().map(p=>`<option ${p===moi()?"selected":""}>${h(p)}</option>`).join("")}</select><span class="hint">Les dépenses ajoutées ici seront notées à ce nom.</span></div>
-      <div class="row2"><div class="fld"><label>Personne 1</label><input data-pers="0" value="${h(personnes()[0])}"></div><div class="fld"><label>Personne 2</label><input data-pers="1" value="${h(personnes()[1])}"></div></div>
+      <div class="fld"><label>Sur ce téléphone, je suis</label><select id="moi">${PRENOMS.map(p=>`<option ${p===moi()?"selected":""}>${h(p)}</option>`).join("")}</select><span class="hint">Les dépenses ajoutées ici seront notées à ce nom.</span></div>
       <div class="fld"><label>Taux de change : 1 CHF = … €</label><input data-taux inputmode="decimal" value="${String(D.reglages.tauxCHF).replace(".",",")}"><span class="hint">Utilisé pour convertir les montants saisis en francs suisses. Les opérations déjà saisies gardent leur montant en euros.</span></div>
     </div>
     <div class="card"><h3>Sauvegarde et échange</h3>
@@ -1262,7 +1289,9 @@ function action(a){
   }
   else if(a==="sync") vueSync();
   else if(a==="envoyer") envoyer();
-  else if(a==="taux-maj") majTaux(true);}
+  else if(a==="taux-maj") majTaux(true);
+  else if(a.startsWith("moi:")){ const p=a.slice(4); lsSet("moi",p); fermerModal(); rendu(); if(p) toast("Bonjour "+p+" !"); }
+  else if(a==="commencer"){ D.local.accueil=false; enregistrer(); rendu(); toast("C'est parti, "+moi()+" !"); }}
 
 document.addEventListener("click",e=>{
   const t=e.target.closest("[data-tab],[data-act],[data-edit],[data-compte],[data-reserve],[data-cat],[data-recur],[data-pointe]");
@@ -1282,25 +1311,15 @@ document.addEventListener("change",e=>{
   else if(t.dataset.filtre && t.dataset.filtre!=="q"){ filtres[t.dataset.filtre]=t.value; rendu(); }
   else if(t.dataset.budget!==undefined){ const k=t.dataset.budget, v=t.value.trim()===""?"":r2(num(t.value)), m=mois;
     modifier(d=>{ if(!d.budgets[m]) d.budgets[m]={...budgetDu(m).b}; d.budgets[m][k]=v; }); }
-  else if(t.dataset.pers!==undefined){ const i=+t.dataset.pers, ancien=personnes()[i], nv=t.value.trim();
-    if(!nv||nv===ancien||persOptions().includes(nv)){ rendu(); return; }
-    modifier(d=>renommerPersonne(d,i,nv),"Nom modifié"); }
   else if(t.dataset.taux!==undefined){ const v=num(t.value); if(v>0) modifier(d=>{ d.reglages.tauxCHF=v; },"Taux enregistré"); }
   else if(t.dataset.recevoir!==undefined && t.files[0]) recevoirFichier(t.files[0]);
-});
-document.addEventListener("submit",e=>{
-  if(e.target.id!=="f-accueil") return; e.preventDefault();
-  const p1=e.target.p1.value.trim(), p2=e.target.p2.value.trim();
-  if(!p1||!p2||p1===p2||[p1,p2].includes(PERS_COMMUN)){ alert("Entrez deux prénoms différents."); return; }
-  lsSet("moi",p1);
-  modifier(d=>{ renommerPersonne(d,0,p1); renommerPersonne(d,1,p2); }); lsSet("moi",p1);
-  D.local.accueil=false; enregistrer(); rendu(); toast("C'est parti, "+p1+" !");
 });
 let tq; document.addEventListener("input",e=>{ if(e.target.dataset.filtre==="q"){ filtres.q=e.target.value; clearTimeout(tq); tq=setTimeout(()=>{ const pos=e.target.selectionStart; rendu(); const s=document.querySelector('[data-filtre="q"]'); s.focus(); s.setSelectionRange(pos,pos); },250); } });
 document.addEventListener("keydown",e=>{ if(e.key==="Escape") fermerModal(); if(e.key==="Enter"&&e.target.classList?.contains("inl")){ e.target.blur(); } });
 document.getElementById("fab").onclick=()=>formRapide();
 
-try{ charger(); rendu(); reclasserAnciennesCategories(); }
+try{ charger(); fixerPrenoms(); rendu(); reclasserAnciennesCategories();
+  if(!D.local.accueil && !PRENOMS.includes(lsGet("moi"))) demanderQui(); }
 catch(e){ console.error(e); document.getElementById("main").innerHTML=`<div class="card empty"><h2>Erreur de lecture des données</h2><p>${h(e.message)}</p></div>`; }
 // Fonctionnement hors connexion + demande de conservation durable des données
 if("serviceWorker" in navigator && location.protocol!=="file:") navigator.serviceWorker.register("sw.js").catch(console.error);
