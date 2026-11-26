@@ -1080,7 +1080,7 @@ function vueReste(){
   let sous="", semaine="";
   if(courant){
     const auj=new Date(), j=auj.getDate(), restants=nj-j+1;
-    sous = p.reste>0 ? `jusqu'au ${nj} ${h(nomMois(mois).split(" ")[0])} · soit environ <b>${eur(p.reste/restants)}</b> par jour` : `Le budget du mois est dépassé`;
+    sous = !p.dispo && !p.quot ? "Aucun budget prévu ce mois-ci" : p.reste>0 ? `jusqu'au ${nj} ${h(nomMois(mois).split(" ")[0])} · soit environ <b>${eur(p.reste/restants)}</b> par jour` : `Le budget du mois est dépassé`;
     // semaine du lundi au dimanche (limitée au mois)
     const lun=new Date(auj); lun.setDate(j-((auj.getDay()+6)%7)); const dim=new Date(lun); dim.setDate(lun.getDate()+6);
     const iso=d=>d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
@@ -1179,7 +1179,7 @@ function vueReste(){
   const P=prefsAccueil();
   // Mois passés ou futurs : le résumé du mois reste toujours visible.
   const simple=modeSimple();
-  const visibles=P.ordre.filter(id=>(!courant&&id==="vivre") || (!P.caches.includes(id) && (!simple||BLOCS_SIMPLES.includes(id))));
+  const visibles=P.ordre.filter(id=>(!courant&&id==="chiffres") || (!P.caches.includes(id) && (!simple||BLOCS_SIMPLES.includes(id))));
   return `<div class="stack">
   <div class="bar" style="margin:0;justify-content:center">${selMois()}</div>
   ${alertesDecouvert()}
@@ -1197,7 +1197,7 @@ function vueReste(){
 const BLOCS_ACCUEIL=[["reel","💰 Reste à vivre réel, prévu et prochain revenu"],["raccourcis","⚡ Raccourcis : dépense, rentrée, ticket, voix"],["comptes","🏦 Solde de chaque compte"],["chiffres","📈 Le mois en chiffres (revenus, dépenses, charges fixes)"],
   ["credits","💳 Crédits en cours"],["budgets","🎯 Budgets par catégorie"],["vivre","🛒 Budget pour vivre ce mois"],["venir","⏳ Prélèvements et revenus à venir"],["semaine","📅 Cette semaine"],
   ["calcul","🧮 Le calcul du mois"],["categories","📊 Où part l'argent"],["qui","👫 Qui a dépensé"],["derniers","🕐 Derniers mouvements"]];
-const CACHES_DEFAUT=[];
+const CACHES_DEFAUT=["vivre"];
 const BLOCS_SIMPLES=["reel","raccourcis","comptes","venir","derniers"];
 function modeSimple(){ return lsGet("modeSimple")!=="0"; } // activé par défaut, propre à chaque téléphone
 function changerModeSimple(on){ lsSet("modeSimple",on?"1":"0"); rendu(); toast(on?"Accueil simple : l'essentiel seulement":"Accueil complet : toutes les informations"); }
@@ -1206,7 +1206,10 @@ function prefsAccueil(){
   const ids=BLOCS_ACCUEIL.map(b=>b[0]), ordre=(x.ordre||[]).filter(i=>ids.includes(i));
   // un bloc ajouté dans une nouvelle version se place après son voisin habituel
   ids.forEach((id,k)=>{ if(!ordre.includes(id)){ const av=ids.slice(0,k).reverse().find(z=>ordre.includes(z)); ordre.splice(av?ordre.indexOf(av)+1:0,0,id); } });
-  return {ordre, caches:(x.caches||CACHES_DEFAUT).filter(i=>ids.includes(i))};
+  let caches=(x.caches||CACHES_DEFAUT).filter(i=>ids.includes(i));
+  // Une seule fois : le bloc « Budget pour vivre » faisait doublon avec le reste à vivre, on le masque.
+  if(x.caches && !x.vivreMasque){ if(!caches.includes("vivre")) caches.push("vivre"); try{ lsSet("accueilBlocs",JSON.stringify({ordre,caches,vivreMasque:true})); }catch(e){} }
+  return {ordre, caches, vivreMasque:true};
 }
 function personnaliserAccueil(){
   let P=prefsAccueil();
