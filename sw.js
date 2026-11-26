@@ -1,6 +1,6 @@
 // Permet d'ouvrir l'application sans connexion : les fichiers sont gardés en cache.
 // Avec du réseau, on prend la dernière version (mise à jour automatique).
-const CACHE = "comptes-du-foyer-v28";
+const CACHE = "comptes-du-foyer-v29";
 const CACHE_OUTILS = "comptes-du-foyer-outils-v1"; // lecture des tickets (Tesseract), gardée entre les versions
 const FICHIERS = ["./", "./index.html", "./manifest.webmanifest", "./icone-180.png", "./icone-192.png", "./icone-512.png", "./icone-maskable-512.png"];
 
@@ -26,7 +26,7 @@ self.addEventListener("fetch", e => {
   const req = e.request, url = new URL(req.url);
   if (req.method !== "GET") return;
   // Outil de lecture des tickets : versions figées, donc on les garde une fois téléchargées (marche ensuite hors ligne).
-  if (url.hostname === "cdn.jsdelivr.net" && /\/npm\/(tesseract\.js|tesseract\.js-core|@tesseract\.js-data)@/.test(url.pathname)) {
+  if (url.hostname === "cdn.jsdelivr.net" && /\/npm\/(tesseract\.js|tesseract\.js-core|@tesseract\.js-data|pdfjs-dist)@/.test(url.pathname)) {
     e.respondWith(caches.open(CACHE_OUTILS).then(c => c.match(req).then(r => r || fetch(req).then(rep => { if (rep.ok) c.put(req, rep.clone()); return rep; }))));
     return;
   }

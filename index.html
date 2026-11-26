@@ -1861,6 +1861,7 @@ function vuePlus(){
   const item=(attr,ic,t,s)=>`<button class="btn choice" ${attr}><b>${ic} ${t}</b><span>${s}</span></button>`;
   return `<h2 style="margin-bottom:14px">Plus</h2>
     ${item('data-act="sync"',"⇄","Synchroniser / sauvegarder","Échanger les comptes avec l'autre téléphone"+(D.local.modifs?` · <b class="neg">${D.local.modifs} à envoyer</b>`:""))}
+    ${item('data-act="releve"',"📄","Analyser un relevé de compte","PDF ou photo du relevé : analyse des dépenses, et ajout des opérations sans doublon")}
     ${item('data-tab="convert"',"💱","Convertisseur € / CHF","Au taux du jour"+(TAUX?` · 1 € = ${String(TAUX.eurchf).replace(".",",")} CHF`:""))}
     ${item('data-tab="bord"',"📊","Analyse détaillée","Prévu / réel par catégorie, réserves, évolution sur 6 mois")}
     ${item('data-tab="budgets"',"🎯","Budgets","Courses, loisirs… : un plafond par semaine, mois, année ou dates choisies")}
@@ -2115,6 +2116,222 @@ function analyserTicket(txt){
   const magasin=(lignes.slice(0,4).find(l=>/^[A-Za-zÀ-ÿ'&.\- ]{3,28}$/.test(l)&&/[A-Za-zÀ-ÿ]{3}/.test(l))||"").trim();
   return {montant,devise,date,magasin:magasin?magasin.charAt(0).toUpperCase()+magasin.slice(1).toLowerCase():""};
 }
+/* ---------- Analyse d'un relevé de compte (PDF ou photo) ----------
+   Tout se passe dans le téléphone : le fichier n'est envoyé nulle part.
+   - PDF avec texte : lu directement (pdf.js, logiciel libre, téléchargé la première fois puis gardé) ;
+   - PDF scanné ou photo : reconnaissance du texte (Tesseract, déjà utilisé pour les tickets).
+   On repère les lignes « date … libellé … montant », on devine débit/crédit et la catégorie,
+   on signale ce qui est déjà noté (pas de doublon), puis on importe seulement ce qui est coché. */
+let _pdfjs=null;
+function chargerPdfjs(){
+  return _pdfjs ||= new Promise((ok,ko)=>{
+    if(window.pdfjsLib) return ok(window.pdfjsLib);
+    const s=document.createElement("script"); s.src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js";
+    s.onload=()=>{ window.pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js"; ok(window.pdfjsLib); };
+    s.onerror=()=>{ _pdfjs=null; s.remove(); ko(new Error("hors ligne")); };
+    document.head.appendChild(s);
+  });
+}
+// Une ligne = des morceaux de texte avec leur position horizontale (pour savoir s'ils sont dans la colonne Débit ou Crédit).
+function ligneDeMorceaux(items){
+  items.sort((a,b)=>a.x-b.x); let texte="", pos=[];
+  for(const it of items){ const st=String(it.str).replace(/\s+/g," ").trim(); if(!st) continue; if(texte) texte+=" ";
+    pos.push({de:texte.length,a:texte.length+st.length,x:it.x,x2:it.x+(it.w||0)}); texte+=st; }
+  return {texte,pos};
+}
+async function ocrLignes(canvas){
+  const T=await chargerTesseract(); _worker ||= T.createWorker("fra"); const w=await _worker;
+  const {data}=await w.recognize(canvas);
+  if(data.lines?.length) return data.lines.map(l=>ligneDeMorceaux((l.words||[]).map(x=>({str:x.text,x:x.bbox.x0,w:x.bbox.x1-x.bbox.x0}))));
+  return String(data.text||"").split(/\r?\n/).map(t=>({texte:t.replace(/\s+/g," ").trim(),pos:[]}));
+}
+function imagePourLecture(file){
+  return new Promise((ok,ko)=>{ const url=URL.createObjectURL(file), img=new Image();
+    img.onload=()=>{ const grand=Math.max(img.width,img.height), s=grand<2400?Math.min(3,2400/grand):Math.min(1,3200/grand);
+      const c=document.createElement("canvas"); c.width=Math.round(img.width*s); c.height=Math.round(img.height*s);
+      const g=c.getContext("2d"); g.filter="grayscale(1) contrast(1.3)"; g.imageSmoothingQuality="high"; g.drawImage(img,0,0,c.width,c.height); URL.revokeObjectURL(url); ok(c); };
+    img.onerror=()=>{ URL.revokeObjectURL(url); ko(new Error("image illisible")); }; img.src=url; });
+}
+async function lireReleve(file,progres){
+  const pdf = /pdf$/i.test(file.type) || /\.pdf$/i.test(file.name);
+  if(!pdf){ progres("Lecture de l'image… (quelques secondes)"); return {lignes:await ocrLignes(await imagePourLecture(file)),mode:"photo"}; }
+  progres("Ouverture du PDF…");
+  const lib=await chargerPdfjs(), doc=await lib.getDocument({data:await file.arrayBuffer()}).promise;
+  let lignes=[];
+  for(let p=1;p<=doc.numPages;p++){ progres(`Lecture de la page ${p} sur ${doc.numPages}…`);
+    const page=await doc.getPage(p), tc=await page.getTextContent(), rangs=[];
+    for(const it of tc.items){ if(!it.str||!it.str.trim()) continue; const y=it.transform[5], x=it.transform[4];
+      let r=rangs.find(r=>Math.abs(r.y-y)<3); if(!r){ r={y,items:[]}; rangs.push(r); } r.items.push({str:it.str,x,w:it.width||0}); }
+    rangs.sort((a,b)=>b.y-a.y).forEach(r=>lignes.push(ligneDeMorceaux(r.items)));
+  }
+  if(lignes.map(l=>l.texte).join("").replace(/\s/g,"").length>80) return {lignes,mode:"pdf"};
+  // PDF scanné (sans texte) : on lit chaque page comme une photo
+  lignes=[];
+  for(let p=1;p<=doc.numPages;p++){ progres(`Reconnaissance du texte, page ${p} sur ${doc.numPages}… (peut prendre un peu de temps)`);
+    const page=await doc.getPage(p), vp=page.getViewport({scale:2}), c=document.createElement("canvas"); c.width=vp.width; c.height=vp.height;
+    await page.render({canvasContext:c.getContext("2d"),viewport:vp}).promise; lignes.push(...await ocrLignes(c)); }
+  return {lignes,mode:"scan"};
+}
+const MOIS_TXT={jan:1,janv:1,fev:2,fevr:2,mar:3,mars:3,avr:4,mai:5,juin:6,juil:7,aou:8,aout:8,sep:9,sept:9,oct:10,nov:11,dec:12};
+const RE_MT=/([-+−]\s?)?(\d{1,3}(?:[ '  .]\d{3})+|\d+)([.,])(\d{2})(?!\d)(\s?(?:-|CR|DB|C|D)(?![A-Za-z]))?/g;
+function valMt(m){ return +(m[2].replace(/[ '  .]/g,"")+"."+m[4]); }
+function analyserReleve(lignes){
+  const tout=lignes.map(l=>l.texte).join("\n");
+  // Année du relevé : la plus fréquente parmi les dates complètes
+  const ans={}; for(const m of tout.matchAll(/\b\d{1,2}[\/.-]\d{1,2}[\/.-](20\d{2})\b/g)) ans[m[1]]=(ans[m[1]]||0)+1;
+  const annee=+(Object.entries(ans).sort((a,b)=>b[1]-a[1])[0]?.[0]||new Date().getFullYear());
+  const devise=/\bCHF\b|\bFr\.\s?\d/.test(tout)&&!/€|\bEUR\b/.test(tout)?"CHF":"EUR";
+  // Colonnes Débit / Crédit / Solde, si le relevé en a
+  let col=null;
+  for(const l of lignes){ const t=sansAccents(l.texte); if(/debit/.test(t)&&/credit/.test(t)&&l.pos.length){
+      const xDe=mot=>{ const i=t.search(mot); const p=l.pos.find(p=>i>=p.de&&i<p.a); return p?(p.x+p.x2)/2:null; };
+      col={debit:xDe(/debit/),credit:xDe(/credit/),solde:/solde/.test(t)?xDe(/solde/):null}; if(col.debit==null||col.credit==null) col=null; break; } }
+  const IGNORE=/\b(ancien solde|nouveau solde|solde (au|crediteur|debiteur|en votre faveur|precedent|initial|final)|total des operations|totaux|sous[- ]total|report|a reporter|page \d)/;
+  const ops=[]; let cur=null;
+  const dateDebut=t=>{
+    let m=t.match(/^(\d{1,2})[\/.-](\d{1,2})(?:[\/.-](\d{2,4}))?(?!\d)/);
+    if(m){ const j=+m[1], mo=+m[2]; if(j>=1&&j<=31&&mo>=1&&mo<=12){ let a=m[3]?+m[3]:null; if(a&&a<100) a+=2000; return {j,mo,a,long:m[0].length}; } }
+    m=t.match(/^(\d{2})(\d{2})(?=\s)/); if(m && +m[1]>=1 && +m[1]<=31 && +m[2]>=1 && +m[2]<=12 && /\d[.,]\d{2}/.test(t)) return {j:+m[1],mo:+m[2],a:null,long:4};
+    m=sansAccents(t).match(/^(\d{1,2})\s?(janv?|fevr?|mars?|avr|mai|juin|juil|aout?|sept?|oct|nov|dec)[a-z]*\.?(?:\s(20\d{2}))?/);
+    if(m) return {j:+m[1],mo:MOIS_TXT[m[2]],a:m[3]?+m[3]:null,long:m[0].length};
+    return null; };
+  for(const l of lignes){
+    let t=l.texte.trim(); if(!t) continue;
+    const tn=sansAccents(t);
+    const d=dateDebut(t);
+    if(d){ // une ou deux dates en tête (opération, valeur)
+      let reste=t.slice(d.long).trim(), dec=d.long; const d2=dateDebut(reste); if(d2){ dec+=t.slice(d.long).length-t.slice(d.long).trimStart().length+d2.long; reste=reste.slice(d2.long).trim(); }
+      if(IGNORE.test(sansAccents(reste))){ cur=null; continue; }
+      cur={j:d.j,mo:d.mo,a:d.a,libelle:"",montant:null,sens:null};
+      ops.push(cur); lireMontants(l,t,dec,cur); continue; }
+    if(!cur) continue;
+    if(IGNORE.test(tn)){ cur=null; continue; }
+    if(cur.montant==null) lireMontants(l,t,0,cur);
+    else if(!RE_MT.test(t) && t.length<70 && cur.suite<2){ cur.libelle+=" "+t; cur.suite=(cur.suite||0)+1; }
+    RE_MT.lastIndex=0;
+  }
+  function lireMontants(l,t,dec,cur){
+    RE_MT.lastIndex=0; const trouves=[]; let m;
+    while((m=RE_MT.exec(t))){ if(m.index<dec) continue;
+      const fin=m.index+m[0].length-1, p=l.pos.find(p=>fin>=p.de&&fin<=p.a)||l.pos.find(p=>m.index>=p.de&&m.index<p.a);
+      trouves.push({v:valMt(m),moins:/[-−]/.test(m[1]||"")||/-|DB|D/.test((m[5]||"").trim()),plus:/\+/.test(m[1]||"")||/CR|C/.test((m[5]||"").trim()),x:p?(p.x+p.x2)/2:null,i:m.index}); }
+    let lib=t.slice(dec); for(const x of [...trouves].reverse()) lib=lib.slice(0,x.i-dec)+" "+lib.slice(x.i-dec).replace(RE_MT,"");
+    RE_MT.lastIndex=0;
+    cur.libelle=(cur.libelle+" "+lib).replace(/\s+/g," ").trim();
+    if(!trouves.length) return;
+    let choix=null;
+    if(col && trouves.some(x=>x.x!=null)){
+      for(const x of trouves){ if(x.x==null) continue; const dist={debit:Math.abs(x.x-col.debit),credit:Math.abs(x.x-col.credit),solde:col.solde!=null?Math.abs(x.x-col.solde):1e9};
+        const k=Object.entries(dist).sort((a,b)=>a[1]-b[1])[0][0]; if(k!=="solde"&&!choix){ choix={...x,sens:k==="credit"?"+":"-"}; } }
+    }
+    if(!choix){ const x=trouves.length>1&&/solde/.test(sansAccents(lignes.find(z=>/debit|credit|montant/.test(sansAccents(z.texte)))?.texte||""))?trouves[trouves.length-2]:trouves[trouves.length-1];
+      choix={...x,sens:x.moins?"-":x.plus?"+":null}; }
+    cur.montant=choix.v; cur.sens=choix.sens;
+  }
+  const moisVus=new Set(ops.map(o=>o.mo));
+  const res=[];
+  for(const o of ops){ if(!o.montant) continue;
+    let a=o.a||annee; if(!o.a && moisVus.has(1)&&moisVus.has(12)&&o.mo>=11) a=annee-1;
+    const date=`${a}-${String(o.mo).padStart(2,"0")}-${String(o.j).padStart(2,"0")}`;
+    const libelle=nettoyerLibelle(o.libelle);
+    let sens=o.sens; if(!sens) sens=/\b(vir(ement)?\s*(sepa\s*)?(recu|de|en votre faveur|inst(antane)?\s*recu)|salaire|paie|remise|rembt|rembourse|avoir|versement|interets crediteurs|allocation|caf\b|pension|retraite|prime)/.test(sansAccents(o.libelle))?"+":"-";
+    res.push({date,libelle,brut:o.libelle,montant:r2(o.montant),type:sens==="+"?"revenu":"depense"});
+  }
+  return {ops:res,devise,colonnes:!!col};
+}
+function nettoyerLibelle(t){
+  let x=t.replace(/\b(CB|CARTE|PAIEMENT PAR CARTE|PAIEMENT CB|ACHAT CB)\b\s*(X?\*?\d{4})?/gi," ").replace(/\bX{2,}\d+\b|\*\d{4}\b/g," ")
+    .replace(/\b\d{2}[\/.]\d{2}(?:[\/.]\d{2,4})?\b/g," ").replace(/\b(FACTURE|CARTE)\s*N?°?\s*\d+/gi," ").replace(/\s+/g," ").trim();
+  x=x.replace(/^(PRLV|PRELEVEMENT)\s*(SEPA)?\s*/i,"Prélèvement ").replace(/^(VIR|VIREMENT)\s*(SEPA)?\s*(RECU|EMIS|INST)?\s*/i,"Virement ");
+  x=x.slice(0,60); return x? x.charAt(0).toUpperCase()+x.slice(1).toLowerCase().replace(/\b(sepa|cb|edf|sncf|ratp|caf|urssaf|sfr|ikea|lidl|aldi|fnac)\b/g,m=>m.toUpperCase()) : "Opération";
+}
+// Mots fréquents des relevés bancaires (prélèvements surtout)
+const MOTS_RELEVE={logement:"loyer immo immobilier agence habitat bailleur syndic foncia nexity",electricite:"edf enercoop electricite ekwateur",chauffage:"engie grdf gaz fioul chauffage",
+  eau:"veolia saur suez eau",internet:"orange sfr bouygues free sosh telecom swisscom sunrise salt",audiovisuel:"netflix canal spotify deezer disney youtube",
+  assurances:"assurance assurances maif macif matmut axa allianz mutuelle gmf groupama maaf",impots:"impot impots dgfip tresor taxe amende",credit:"pret cofidis cetelem sofinco cardif",
+  transport:"sncf ratp navigo peage autoroute parking",sante:"pharmacie medecin dentiste cpam",alimentation:"carrefour leclerc auchan lidl aldi intermarche monoprix casino boulangerie migros coop denner"};
+function devinerCategorie(libelle,type){
+  const t=sansAccents(libelle), cats=catsDe(type==="revenu"?"revenu":"depense");
+  const r=D.recurrentes.find(r=>r.libelle&&r.libelle.length>=3&&t.includes(sansAccents(r.libelle))&&r.categorieId); if(r&&cats.some(c=>c.id===r.categorieId)) return r.categorieId;
+  const o=[...D.operations].reverse().find(o=>o.type===type&&o.libelle&&o.libelle.length>=4&&o.categorieId&&(t.includes(sansAccents(o.libelle))||sansAccents(o.libelle).includes(t))); if(o) return o.categorieId;
+  const c=cats.find(c=>c.nom.length>=4&&t.includes(sansAccents(c.nom))); if(c) return c.id;
+  if(type!=="revenu") for(const [id,mots] of Object.entries(MOTS_RELEVE)) if(cats.some(c=>c.id===id)&&mots.split(" ").some(w=>new RegExp("\\b"+w+"\\b").test(t))) return id;
+  for(const [id,mots] of Object.entries(MOTS_CAT)) if(cats.some(c=>c.id===id)&&mots.split(" ").some(w=>new RegExp("\\b"+w+"\\b").test(t))) return id;
+  const autre=cats.find(c=>c.id==="autres")||cats.find(c=>/^autres?$|divers/i.test(c.nom)); return (autre||cats.find(c=>c.type==="variable")||cats[0])?.id||"";
+}
+function formReleve(){
+  if(!exigerCompte()) return;
+  const cs=comptesVisibles(); let lus=null, compteId=lsGet("releveCompte"); if(!cs.some(c=>c.id===compteId)) compteId=cs[0].id;
+  ouvrirModal(`<h2>📄 Analyser un relevé</h2>
+    <p class="note" style="margin-top:-6px">Choisissez le relevé de votre banque (PDF ou photo). L'appli le lit <b>dans ce téléphone</b> (rien n'est envoyé), vous montre l'analyse, puis vous choisissez ce que vous voulez ajouter.</p>
+    <div class="fld"><label>Relevé du compte</label><select id="rl-compte">${options(cs.map(c=>[c.id,c.nom+(c.banque?" · "+c.banque:"")]),compteId)}</select></div>
+    <label class="btn pri choice" style="margin-bottom:8px"><b>📂 Choisir le relevé (PDF ou image)</b><span>Le PDF téléchargé depuis l'appli ou le site de la banque est le plus fiable.</span><input type="file" id="rl-fichier" accept="application/pdf,.pdf,image/*" hidden></label>
+    <div id="rl-etat" class="note"></div>
+    <div id="rl-res"></div>
+    <div class="actions" id="rl-actions"><button type="button" class="btn" id="rl-fermer">Fermer</button></div>`, m=>{
+    const etat=m.querySelector("#rl-etat"), zone=m.querySelector("#rl-res"), selC=m.querySelector("#rl-compte");
+    m.querySelector("#rl-fermer").onclick=fermerModal;
+    selC.onchange=()=>{ compteId=selC.value; lsSet("releveCompte",compteId); if(lus) afficher(); };
+    m.querySelector("#rl-fichier").onchange=async e=>{ const file=e.target.files[0]; e.target.value=""; if(!file) return;
+      zone.innerHTML=""; etat.textContent="Préparation…";
+      try{ const {lignes,mode}=await lireReleve(file,t=>etat.textContent=t); const an=analyserReleve(lignes);
+        if(!an.ops.length){ etat.innerHTML=`<b>Aucune opération reconnue.</b> ${mode==="photo"?"Essayez une photo bien droite et nette, ou mieux : le PDF du relevé.":"Ce relevé a une présentation que l'appli ne sait pas encore lire."}`; return; }
+        lus={...an,mode,fichier:file.name}; lus.ops.forEach(o=>{ o.categorieId=devinerCategorie(o.libelle,o.type); });
+        etat.innerHTML=`${lus.ops.length} opérations lues dans « ${h(file.name)} »${mode!=="pdf"?" (texte reconnu sur l'image : vérifiez bien les montants)":""}.`;
+        afficher();
+      }catch(err){ etat.innerHTML = err.message==="hors ligne" ? "<b>Connexion nécessaire la première fois</b> pour télécharger le lecteur. Ensuite, il marche sans réseau." : "<b>Lecture impossible :</b> "+h(err.message||String(err)); }
+    };
+    function afficher(){
+      const c=compte(compteId), dv=deviseCompte(c);
+      // Déjà noté ? même compte, même sens, même montant, à 4 jours près
+      const existants=D.operations.filter(o=>(o.compteId===c.id||o.compteDestId===c.id)&&!STATUTS_EXCLUS.includes(o.statut));
+      lus.ops.forEach(o=>{ const v=o.type==="revenu"?o.montant:-o.montant;
+        o.deja=existants.find(e=>Math.abs(effetSur(e,c.id)-v)<0.01 && Math.abs((new Date(e.date)-new Date(o.date))/864e5)<=4);
+        o.avantSolde=!!(c.soldeDate&&o.date<=c.soldeDate); if(o.coche==null) o.coche=!o.deja; });
+      const sorties=lus.ops.filter(o=>o.type==="depense"), entrees=lus.ops.filter(o=>o.type==="revenu");
+      const tot=a=>r2(a.reduce((s,o)=>s+o.montant,0)), dates=lus.ops.map(o=>o.date).sort();
+      const parCat={}; sorties.forEach(o=>parCat[o.categorieId]=(parCat[o.categorieId]||0)+o.montant);
+      const top=Object.entries(parCat).sort((a,b)=>b[1]-a[1]).slice(0,6), maxC=top[0]?.[1]||1;
+      const frais=sorties.filter(o=>/\b(frais|commission|cotisation|agios|interets debiteurs|tenue de compte|penalite)/.test(sansAccents(o.brut)));
+      const prlv=sorties.filter(o=>/\b(prlv|prelevement|echeance|abonnement)/.test(sansAccents(o.brut)));
+      const grosses=[...sorties].sort((a,b)=>b.montant-a.montant).slice(0,5);
+      const ligneOp=o=>`<div class="l"><span>${dateCourte(o.date).replace(/\.$/,"")} · ${h(o.libelle)}</span><span>${fmt(o.montant,dv)}</span></div>`;
+      const aImporter=lus.ops.filter(o=>o.coche);
+      zone.innerHTML=`<div class="card"><h3>🔎 Analyse du relevé</h3>
+        <div class="note" style="margin:-4px 0 8px">Du ${dateCourte(dates[0])} au ${dateCourte(dates[dates.length-1])} · ${lus.ops.length} opérations${lus.devise!==dv?` · <b>attention : relevé en ${lus.devise}, compte en ${dv}</b>`:""}</div>
+        <div class="lines num"><div class="l"><span>💶 Entrées (${entrees.length})</span><span class="pos">+ ${fmt(tot(entrees),dv)}</span></div>
+        <div class="l"><span>🧾 Sorties (${sorties.length})</span><span>− ${fmt(tot(sorties),dv)}</span></div>
+        <div class="l"><b>Différence sur la période</b><b class="${cls(tot(entrees)-tot(sorties))}">${fmt(r2(tot(entrees)-tot(sorties)),dv)}</b></div></div>
+        ${top.length?`<h3 style="margin:12px 0 6px">Où part l'argent</h3>${top.map(([id,v])=>{ const k=cat(id); return `<div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between"><span>${k?.icone||""} ${h(k?.nom||"Autre")}</span><b class="num">${fmt(r2(v),dv)}</b></div><div class="gbar"><i style="width:${v/maxC*100}%"></i></div></div>`; }).join("")}`:""}
+        ${grosses.length?`<details class="more"><summary>Les ${grosses.length} plus grosses dépenses</summary><div class="lines num">${grosses.map(ligneOp).join("")}</div></details>`:""}
+        ${prlv.length?`<details class="more"><summary>Prélèvements (${prlv.length}) : ${fmt(tot(prlv),dv)}</summary><div class="lines num">${prlv.map(ligneOp).join("")}</div></details>`:""}
+        ${frais.length?`<div class="note" style="margin-top:8px">💸 <b>Frais bancaires : ${fmt(tot(frais),dv)}</b> sur la période. Ça vaut peut-être le coup d'en parler à votre banque.</div>`:""}
+      </div>
+      <div class="card"><div class="bar" style="margin-bottom:4px"><h3 style="margin:0">Opérations lues</h3><div class="grow"></div><button type="button" class="btn sm ghost" id="rl-tout">${aImporter.length===lus.ops.length?"Tout décocher":"Tout cocher"}</button></div>
+        <p class="hint" style="margin:0 0 6px">Vérifiez avant d'ajouter. Touchez le montant pour changer entrée ↔ sortie. Les lignes « déjà notée » sont décochées pour éviter les doublons.</p>
+        ${lus.ops.map((o,i)=>`<div class="mline" style="cursor:default;align-items:flex-start;${o.coche?"":"opacity:.55"}">
+          <input type="checkbox" data-rl-c="${i}" ${o.coche?"checked":""} style="width:20px;height:20px;flex:none;margin-top:2px" aria-label="Ajouter cette opération">
+          <div class="mid"><div class="t">${h(o.libelle)}</div>
+            <div class="s">${dateCourte(o.date)}${o.deja?` · <b class="warn">déjà notée</b> (${h(libelleOp(o.deja))})`:""}${o.avantSolde?" · avant le solde indiqué : ne change pas le solde":""}</div>
+            <select data-rl-cat="${i}" style="margin-top:4px;font-size:13px;padding:4px 6px;border:1px solid var(--line);border-radius:8px;background:var(--surface);max-width:100%">${options(catsDe(o.type==="revenu"?"revenu":"depense").map(k=>[k.id,(k.icone?k.icone+" ":"")+k.nom]),o.categorieId)}</select></div>
+          <button type="button" class="btn sm ghost num ${o.type==="revenu"?"pos":""}" data-rl-s="${i}" style="white-space:nowrap">${o.type==="revenu"?"+ ":"− "}${fmt(o.montant,dv)}</button></div>`).join("")}
+      </div>`;
+      m.querySelector("#rl-actions").innerHTML=`<button type="button" class="btn" id="rl-fermer2">Fermer</button><button type="button" class="btn pri" id="rl-ok" ${aImporter.length?"":"disabled"}>Ajouter ${aImporter.length} opération${aImporter.length>1?"s":""}</button>`;
+      m.querySelector("#rl-fermer2").onclick=fermerModal;
+      m.querySelector("#rl-tout").onclick=()=>{ const tous=aImporter.length===lus.ops.length; lus.ops.forEach(o=>o.coche=!tous); afficher(); };
+      m.querySelectorAll("[data-rl-c]").forEach(x=>x.onchange=()=>{ lus.ops[+x.dataset.rlC].coche=x.checked; afficher(); });
+      m.querySelectorAll("[data-rl-cat]").forEach(x=>x.onchange=()=>{ lus.ops[+x.dataset.rlCat].categorieId=x.value; });
+      m.querySelectorAll("[data-rl-s]").forEach(x=>x.onclick=()=>{ const o=lus.ops[+x.dataset.rlS]; o.type=o.type==="revenu"?"depense":"revenu"; o.categorieId=devinerCategorie(o.libelle,o.type); afficher(); });
+      m.querySelector("#rl-ok").onclick=()=>{
+        const n=aImporter.length, perso=personnes().includes(c.proprietaire)?c.proprietaire:moi(), cree=new Date().toISOString();
+        const nouvelles=aImporter.map(o=>({id:uid(),cree,type:o.type,date:o.date,libelle:o.libelle,devise:dv,montant:versEur(o.montant,dv),montantOrigine:dv!=="EUR"?o.montant:null,
+          categorieId:o.categorieId,compteId:c.id,compteDestId:"",reserveId:"",personne:perso,note:"Relevé : "+o.brut.slice(0,80),pointe:true}));
+        fermerModal(); modifier(d=>d.operations.push(...nouvelles),`${n} opération${n>1?"s":""} ajoutée${n>1?"s":""} depuis le relevé`);
+      };
+    }
+  });
+}
+
 // Bloc « 📷 Ticket » réutilisé dans les deux formulaires.
 function blocPhoto(conteneur,{photoId,onLu}){
   const etat={photoId:photoId||"", nouvelle:null, retiree:false};
@@ -2578,6 +2795,7 @@ function action(a){
   else if(a.startsWith("recur-new:")) formRecurrente(null,a.split(":")[1]);
   else if(a==="compte-new") formCompte();
   else if(a==="sim-virements") simulerVirements();
+  else if(a==="releve") formReleve();
   else if(a==="change"){ const vis=comptesVisibles(), src=vis.find(c=>deviseCompte(c)==="CHF")||vis.find(c=>deviseCompte(c)!=="EUR");
     if(!src){ alert("Pour changer des CHF en euros, créez d'abord un compte en CHF :\nComptes & épargne → + Compte, devise « CHF » (par exemple « Salaire CHF »).\n\nVous pourrez ensuite y noter votre salaire, payer en CHF (une amende suisse…), puis changer le reste en euros."); return; }
     const dst=vis.find(c=>deviseCompte(c)===dp()&&c.proprietaire===moi()) || vis.find(c=>deviseCompte(c)===dp()&&typeCompte(c)==="commun") || vis.find(c=>deviseCompte(c)!==deviseCompte(src));
