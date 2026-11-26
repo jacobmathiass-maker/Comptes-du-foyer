@@ -895,7 +895,7 @@ function vueComptes(){
     <div class="card kpi hero"><div class="lbl">Patrimoine disponible</div><div class="val num">${fmtP(tot+totAutres+totR)}</div></div>
   </div>
   <div class="grid g2">
-    <div class="card"><div class="bar" style="margin-bottom:4px"><h3 style="margin:0">Comptes du reste à vivre</h3><div class="grow"></div><button class="btn sm" data-act="change">💱 Changer</button><button class="btn sm" data-act="compte-new">+ Compte</button></div>
+    <div class="card"><div class="bar" style="margin-bottom:4px"><h3 style="margin:0">Comptes du reste à vivre</h3><div class="grow"></div><button class="btn sm" data-act="sim-virements">🔀 Simuler</button><button class="btn sm" data-act="change">💱 Changer</button><button class="btn sm" data-act="compte-new">+ Compte</button></div>
       ${inclus.map(c=>ligneCompte(c,finTxt,fin)).join("")||`<div class="note" style="padding:8px 0">Aucun compte coché.</div>`}
       ${autres.length?`<h3 style="margin:16px 0 4px">Autres comptes <span class="note">(non comptés dans le reste à vivre)</span></h3>${autres.map(c=>ligneCompte(c,finTxt,fin)).join("")}`:""}
       ${archives.length?`<details class="more"><summary>Comptes archivés (${archives.length})</summary>${archives.map(c=>ligneCompte(c,finTxt,fin)).join("")}</details>`:""}
@@ -1123,7 +1123,7 @@ function vueReste(){
       <div class="gauge-txt" style="margin-top:12px;font-size:14px"><span>Prévu au ${h(finTxt)}</span><b class="num">${fmtP(S.prevu)}</b></div>
       ${S.prochainRevenu?`<div class="gauge-txt" style="font-size:13px"><span>Prochain revenu</span><span>${h(S.prochainRevenu.libelle)} · ${h(dateCourte(S.prochainRevenu.date))}</span></div>`:""}
     </div>`;
-    comptesCarte=`${!comptesVisibles().length?`<div class="card" style="border-color:var(--pri,#1f6f5c)"><h3 style="margin:0 0 4px">🏦 Ajoutez vos comptes</h3><p class="note" style="margin:0 0 10px">Créez autant de comptes que vous voulez, dans une ou plusieurs banques : compte courant, compte joint, livret, compte en CHF…</p><button class="btn pri" data-act="compte-new">+ Ajouter mon premier compte</button></div>`:""}${comptesActifs().length>=1?`<div class="card"><div class="bar" style="margin-bottom:2px"><h3 style="margin:0">🏦 Mes comptes</h3><div class="grow"></div>${new Set(comptesVisibles().map(deviseCompte)).size>1?`<button class="btn sm ghost" data-act="change">💱 Changer</button>`:""}<button class="btn sm" data-act="compte-new">+ Compte</button><button class="btn sm ghost" data-tab="comptes">Gérer ›</button></div>
+    comptesCarte=`${!comptesVisibles().length?`<div class="card" style="border-color:var(--pri,#1f6f5c)"><h3 style="margin:0 0 4px">🏦 Ajoutez vos comptes</h3><p class="note" style="margin:0 0 10px">Créez autant de comptes que vous voulez, dans une ou plusieurs banques : compte courant, compte joint, livret, compte en CHF…</p><button class="btn pri" data-act="compte-new">+ Ajouter mon premier compte</button></div>`:""}${comptesActifs().length>=1?`<div class="card"><div class="bar" style="margin-bottom:2px"><h3 style="margin:0">🏦 Mes comptes</h3><div class="grow"></div>${new Set(comptesVisibles().map(deviseCompte)).size>1?`<button class="btn sm ghost" data-act="change">💱 Changer</button>`:""}${comptesVisibles().length>1?`<button class="btn sm ghost" data-act="sim-virements" aria-label="Simuler des virements">🔀</button>`:""}<button class="btn sm" data-act="compte-new">+ Compte</button><button class="btn sm ghost" data-tab="comptes">Gérer ›</button></div>
       ${comptesActifs().map(c=>{ const sc=soldeCompte(c.id); return `<div class="mline" data-act="ops-compte:${c.id}">${pastille(c,30)}<div class="mid"><div class="t">${h(c.nom)}</div><div class="s">${c.banque?h(c.banque)+" · ":""}prévu fin du mois : ${fmtCompte(projection(c.id).fin,c)}</div></div><div style="text-align:right"><b class="num ${cls(sc)}">${fmtCompte(sc,c)}</b>${deviseCompte(c)!==dp()?`<div class="s">≈ ${fmtP(convertir(sc,deviseCompte(c),dp()))}</div>`:""}</div></div>`; }).join("")}</div>`:""}`;
     creditsCarte=`${(()=>{ const cs=D.recurrentes.filter(creditActif); if(!cs.length) return "";
       const tot=r2(cs.reduce((a,r)=>a+versEur(r.montant,r.devise),0)), pr=cs.map(r=>[r,etatCredit(r).prochaine]).filter(x=>x[1]).sort((a,b)=>a[1].date.localeCompare(b[1].date))[0];
@@ -1920,6 +1920,65 @@ function vueReglages(){
 /* ============================================================
    Formulaires (fenêtres)
    ============================================================ */
+/* ---------- Simulateur de virements entre comptes ----------
+   On essaie des virements (faits aujourd'hui) pour voir l'effet sur chaque compte : aujourd'hui, point le plus bas
+   d'ici la fin du mois, fin du mois. Rien n'est enregistré tant qu'on ne valide pas un virement dans le formulaire habituel. */
+function simulerVirements(){
+  if(!exigerCompte()) return;
+  const cs=comptesVisibles();
+  if(cs.length<2){ alert("Il faut au moins deux comptes pour simuler un virement.\nAjoutez-en un avec « + Compte »."); return; }
+  const sims=[]; const finTxt=new Date(finMois()+"T12:00").toLocaleDateString("fr-FR",{day:"numeric",month:"long"});
+  const base=Object.fromEntries(cs.map(c=>{ const p=projection(c.id); return [c.id,{auj:soldeCompte(c.id),min:p.min,dateMin:p.dateMin,fin:p.fin}]; }));
+  const delta=id=>{ let d=0; for(const x of sims){ const de=compte(x.de), ve=compte(x.vers);
+    if(x.de===id) d-=x.montant; if(x.vers===id) d+=r2(convertir(x.montant,deviseCompte(de),deviseCompte(ve))); } return r2(d); };
+  const limite=c=>-num(c.decouvert);
+  const etat_=(v,c)=>v<limite(c)-0.004?"neg":v<-0.004?"warn":"";
+  ouvrirModal(`<h2>🔀 Simuler des virements</h2>
+    <p class="note" style="margin-top:-6px">Essayez des virements entre vos comptes pour éviter un découvert. <b>Rien n'est enregistré</b> : c'est une simulation.</p>
+    <div id="sv-conseils"></div>
+    <form id="sv-f" autocomplete="off" class="card" style="padding:10px 12px">
+      <div class="row2"><div class="fld"><label>Depuis</label><select name="de">${options(cs.map(c=>[c.id,c.nom]),cs[0].id)}</select></div>
+        <div class="fld"><label>Vers</label><select name="vers">${options(cs.map(c=>[c.id,c.nom]),cs[1].id)}</select></div></div>
+      <div class="fld"><label id="sv-lbl">Montant</label><input name="montant" inputmode="decimal" placeholder="0,00"></div>
+      <button class="btn pri" style="width:100%">+ Ajouter à la simulation</button></form>
+    <div id="sv-liste"></div>
+    <div id="sv-table"></div>
+    <div class="actions"><button type="button" class="btn pri" id="sv-ok">Fermer</button></div>`, m=>{
+    const f=m.querySelector("#sv-f");
+    const majLbl=()=>{ m.querySelector("#sv-lbl").textContent=`Montant (${symbole(deviseCompte(compte(f.de.value)))})`; };
+    f.de.onchange=majLbl; majLbl();
+    const dessiner=()=>{
+      // Conseils : comptes qui passent sous zéro d'ici la fin du mois, et quel compte peut les renflouer
+      const besoins=cs.map(c=>{ const b=base[c.id], mn=r2(b.min+delta(c.id)); return {c,manque:r2(-Math.min(mn,0)),date:b.dateMin}; }).filter(x=>x.manque>0.004);
+      m.querySelector("#sv-conseils").innerHTML = besoins.length ? besoins.map(({c,manque,date})=>{
+        const donneur=cs.filter(d=>d.id!==c.id).map(d=>({d,marge:r2(base[d.id].min+delta(d.id))})).filter(x=>x.marge>0).sort((a,b)=>b.marge-a.marge)[0];
+        const besoinSrc=donneur?r2(convertir(manque,deviseCompte(c),deviseCompte(donneur.d))):0, propose=donneur?r2(Math.min(besoinSrc,donneur.marge)):0;
+        return `<div class="card" style="border-color:var(--warn);padding:10px 12px"><b>⚠️ ${h(c.nom)}</b> descend à <b class="neg">${fmtCompte(r2(base[c.id].min+delta(c.id)),c)}</b>${date?` le ${dateCourte(date)}`:""}
+          ${donneur?`<div class="note" style="margin:4px 0 6px">Il manque ${fmtCompte(manque,c)}. ${h(donneur.d.nom)} peut aider (au plus bas il lui reste ${fmtCompte(donneur.marge,donneur.d)}).</div>
+          <button type="button" class="btn sm" data-sv-conseil="${donneur.d.id}|${c.id}|${propose}">Simuler ${fmtCompte(propose,donneur.d)} : ${h(donneur.d.nom)} → ${h(c.nom)}</button>`
+          :`<div class="note" style="margin-top:4px">Aucun autre compte n'a assez d'argent pour le couvrir ce mois-ci.</div>`}</div>`; }).join("")
+        : `<div class="card" style="padding:10px 12px">✅ Aucun compte ne passe sous zéro d'ici le ${h(finTxt)}${sims.length?" avec ces virements":""}.</div>`;
+      m.querySelectorAll("[data-sv-conseil]").forEach(b=>b.onclick=()=>{ const [de,vers,mt]=b.dataset.svConseil.split("|"); sims.push({de,vers,montant:r2(num(mt))}); dessiner(); });
+      m.querySelector("#sv-liste").innerHTML = sims.length ? `<h3 style="margin:12px 0 4px">Virements simulés</h3>`+sims.map((x,i)=>{ const de=compte(x.de), ve=compte(x.vers);
+        return `<div class="mline" style="cursor:default"><div class="mid"><div class="t">${h(de.nom)} → ${h(ve.nom)}</div><div class="s">${fmtCompte(x.montant,de)}${deviseCompte(de)!==deviseCompte(ve)?` ≈ ${fmtCompte(r2(convertir(x.montant,deviseCompte(de),deviseCompte(ve))),ve)}`:""}</div></div>
+          <button type="button" class="btn sm" data-sv-faire="${i}">Faire ce virement</button><button type="button" class="icon" data-sv-del="${i}" aria-label="Retirer">✕</button></div>`; }).join("") : "";
+      m.querySelectorAll("[data-sv-del]").forEach(b=>b.onclick=()=>{ sims.splice(+b.dataset.svDel,1); dessiner(); });
+      m.querySelectorAll("[data-sv-faire]").forEach(b=>b.onclick=()=>{ const x=sims[+b.dataset.svFaire], de=compte(x.de), ve=compte(x.vers), dv=deviseCompte(de); fermerModal();
+        formOperation(null,{type:"virement",compteId:x.de,compteDestId:x.vers,devise:dv,montant:x.montant,montantOrigine:x.montant,libelle:`Virement ${de.nom} → ${ve.nom}`}); });
+      const cel=(v,c,avant)=>{ const ch=Math.abs(v-avant)>0.004; return `<td style="text-align:right;padding:4px 6px"><b class="num ${etat_(v,c)}">${fmtCompte(v,c)}</b>${ch?`<div class="note" style="font-size:11px">avant ${fmtCompte(avant,c)}</div>`:""}</td>`; };
+      m.querySelector("#sv-table").innerHTML=`<h3 style="margin:12px 0 4px">Vos comptes${sims.length?" après simulation":""}</h3>
+        <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr class="note"><th style="text-align:left;padding:4px 6px">Compte</th><th style="text-align:right;padding:4px 6px">Aujourd'hui</th><th style="text-align:right;padding:4px 6px">Plus bas</th><th style="text-align:right;padding:4px 6px">Fin du mois</th></tr></thead><tbody>
+        ${cs.map(c=>{ const b=base[c.id], d=delta(c.id); return `<tr style="border-top:1px solid var(--line)"><td style="padding:4px 6px">${h(c.nom)}${c.banque?`<div class="note" style="font-size:11px">${h(c.banque)}</div>`:""}</td>${cel(r2(b.auj+d),c,b.auj)}${cel(r2(b.min+d),c,b.min)}${cel(r2(b.fin+d),c,b.fin)}</tr>`; }).join("")}
+        </tbody></table></div><p class="hint">« Plus bas » : le solde le plus faible d'ici le ${h(finTxt)}, avec les prélèvements et revenus prévus. En rouge : au-delà du découvert autorisé.</p>`;
+    };
+    f.onsubmit=e=>{ e.preventDefault(); const mt=r2(Math.abs(num(f.montant.value)));
+      if(f.de.value===f.vers.value){ toast("Choisissez deux comptes différents"); return; }
+      if(!mt){ toast("Indiquez un montant"); return; }
+      sims.push({de:f.de.value,vers:f.vers.value,montant:mt}); f.montant.value=""; dessiner(); };
+    m.querySelector("#sv-ok").onclick=fermerModal;
+    dessiner();
+  });
+}
 function ouvrirModal(html, init){
   const root=document.getElementById("modal-root");
   root.innerHTML=`<div class="ov"><div class="modal" role="dialog" aria-modal="true">${html}</div></div>`;
@@ -2518,6 +2577,7 @@ function action(a){
       else if(d.reglages.personnes[i]!==n) renommerPersonne(d,i,n); }); },"Prénoms enregistrés"); verifierQui(); }
   else if(a.startsWith("recur-new:")) formRecurrente(null,a.split(":")[1]);
   else if(a==="compte-new") formCompte();
+  else if(a==="sim-virements") simulerVirements();
   else if(a==="change"){ const vis=comptesVisibles(), src=vis.find(c=>deviseCompte(c)==="CHF")||vis.find(c=>deviseCompte(c)!=="EUR");
     if(!src){ alert("Pour changer des CHF en euros, créez d'abord un compte en CHF :\nComptes & épargne → + Compte, devise « CHF » (par exemple « Salaire CHF »).\n\nVous pourrez ensuite y noter votre salaire, payer en CHF (une amende suisse…), puis changer le reste en euros."); return; }
     const dst=vis.find(c=>deviseCompte(c)===dp()&&c.proprietaire===moi()) || vis.find(c=>deviseCompte(c)===dp()&&typeCompte(c)==="commun") || vis.find(c=>deviseCompte(c)!==deviseCompte(src));
